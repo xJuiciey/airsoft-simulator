@@ -345,15 +345,15 @@ function peiAddTrees(){
  const pineMats=[new THREE.MeshStandardMaterial({color:0x183c29,roughness:1}),new THREE.MeshStandardMaterial({color:0x244b31,roughness:1}),new THREE.MeshStandardMaterial({color:0x315b39,roughness:1}),new THREE.MeshStandardMaterial({color:0x3c6841,roughness:1})];
  const pines=pineGeos.map((g,i)=>new THREE.InstancedMesh(g,pineMats[i],total));
  const crownGeo=new THREE.SphereGeometry(1,14,12),crownMat=new THREE.MeshStandardMaterial({color:0x315638,roughness:1}),crowns=[0,1,2].map(()=>new THREE.InstancedMesh(crownGeo,crownMat,total*3));
- let count=0,deciduous=0;
+ let count=0,deciduous=0,pineCount=0;
  for(let i=0;i<total;i++){const x=(Math.random()-.5)*2250,z=(Math.random()-.5)*1900;if(Math.hypot(x,z)<85||peiRoadNear(x,z,15))continue;
   const y=peiHeightAt(x,z),scale=.72+Math.random()*.85,rot=Math.random()*Math.PI*2;
   dummy.position.set(x,y+2.9*scale,z);dummy.scale.set(scale,scale,scale);dummy.rotation.set(0,rot,0);dummy.updateMatrix();trunks.setMatrixAt(count,dummy.matrix);
-  if(Math.random()<.72){const heights=[2.2,3.25,4.25,5.25],sizes=[1,.84,.68,.5];for(let k=0;k<4;k++){dummy.position.set(x,y+heights[k]*scale,z);dummy.scale.setScalar(scale*sizes[k]);dummy.rotation.set(0,rot+k*.35,0);dummy.updateMatrix();pines[k].setMatrixAt(count,dummy.matrix)}}
+  if(Math.random()<.72){const heights=[2.2,3.25,4.25,5.25],sizes=[1,.84,.68,.5];for(let k=0;k<4;k++){dummy.position.set(x,y+heights[k]*scale,z);dummy.scale.setScalar(scale*sizes[k]);dummy.rotation.set(0,rot+k*.35,0);dummy.updateMatrix();pines[k].setMatrixAt(pineCount,dummy.matrix)}pineCount++}
   else{const offsets=[[0,5.2,0],[-1.1,4.8,.5],[1.0,4.9,-.5]];for(let k=0;k<3;k++){dummy.position.set(x+offsets[k][0]*scale,y+offsets[k][1]*scale,z+offsets[k][2]*scale);dummy.scale.set(1.45*scale,1.75*scale,1.35*scale);dummy.rotation.set(0,rot+k,0);dummy.updateMatrix();crowns[k].setMatrixAt(deciduous,dummy.matrix)}deciduous++}
   count++;
  }
- trunks.count=count;pines.forEach(m=>m.count=count);crowns.forEach(m=>m.count=deciduous);PEI_SCENE.add(trunks,...pines,...crowns);
+ trunks.count=count;pines.forEach(m=>m.count=pineCount);crowns.forEach(m=>m.count=deciduous);PEI_SCENE.add(trunks,...pines,...crowns);
 }
 function peiRoadNear(x,z,r){for(const o of peiSceneRoadSamples){if(Math.hypot(x-o.x,z-o.z)<r)return true}for(const o of peiSceneBuildingSamples){if(Math.hypot(x-o.x,z-o.z)<r+12)return true}return false}
 const peiSceneRoadSamples=[],peiSceneBuildingSamples=[];
