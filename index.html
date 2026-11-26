@@ -338,6 +338,33 @@ function peiFallback(){
  // No invented roads or buildings: keep the actual terrain and report missing OSM data.
  peiDataStatus='OSM DATA UNAVAILABLE';
 }
+async function peiLoadOfficialRoads(){
+ // Government of PEI road-centerline FeatureServer. Query only the active Sturgeon
+ // region; the service returns real surveyed centreline geometry in WGS84.
+ const base='https://gis.princeedwardisland.ca/server/rest/services/road_centerline/FeatureServer/0/query';
+ const params=new URLSearchParams({where:'1=1',geometry:[PEI_BOUNDS.west,PEI_BOUNDS.south,PEI_BOUNDS.east,PEI_BOUNDS.north].join(','),geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:'NAME,ROAD_STATU,LENGTH_MET',returnGeometry:'true',outSR:'4326',f:'geojson'});
+ const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),25000);
+ try{
+  const res=await fetch(base+'?'+params.toString(),{signal:ctl.signal,mode:'cors',cache:'no-store'});
+  if(!res.ok)throw new Error('PEI road GIS HTTP '+res.status);
+  const data=await res.json();
+  if(!data||!Array.isArray(data.features))throw new Error('Invalid PEI road GIS response');
+  let roads=0;
+  data.features.forEach(feature=>{
+   const geom=feature.geometry;if(!geom)return;
+   const lines=geom.type==='LineString'?[geom.coordinates]:geom.type==='MultiLineString'?geom.coordinates:[];
+   lines.forEach(line=>{
+    const pts=line.map(c=>peiXY(c[1],c[0]));
+    if(pts.length<2)return;
+    const name=((feature.properties||{}).NAME||'').toLowerCase();
+    const w=/highway|arterial|collector/.test(name)?6.5:4.5;
+    peiRoad(pts,w,peiMaterials.road);roads++;
+   });
+  });
+  if(!roads)throw new Error('PEI road GIS returned no lines in this region');
+  return roads;
+ }finally{clearTimeout(timer)}
+}
 async function peiLoadOSM(){const {south,west,north,east}=PEI_BOUNDS;const q=`[out:json][timeout:30];(way[highway](${south},${west},${north},${east});way[building](${south},${west},${north},${east});way[waterway](${south},${west},${north},${east});way[natural=water](${south},${west},${north},${east}););(._;>;);out body;`;
 // The North American dresel mirror explicitly supports browser CORS; keep the public
 // global Overpass instances as fallbacks in case that mirror is temporarily unavailable.
@@ -376,7 +403,7 @@ async function startPEIWorld(){
   if(!demOK)console.warn('PEI elevation tiles unavailable',results[0].reason);
   if(!orthoOK)console.warn('PEI orthophoto tiles unavailable',results[1].reason);
   peiAddGround();peiLabel('STURGEON • KINGS COUNTY',0,-28);
-  try{await peiLoadOSM()}catch(e){console.warn('OSM unavailable',e);peiFallback()}
+  try{await peiLoadOSM()}catch(e){console.warn('OSM unavailable',e);try{const roads=await peiLoadOfficialRoads();peiDataStatus='GOVERNMENT OF PEI ROADS • '+roads+' ROAD SEGMENTS • OSM BUILDINGS UNAVAILABLE'}catch(roadError){console.warn('Official PEI road GIS unavailable',roadError);peiFallback()}}
   peiAddTrees();peiBuilt=true;peiLoading=false;
   const src=(demOK?'TERRARIUM ELEVATION':'PROCEDURAL ELEVATION')+' • '+(orthoOK?'PEI 2020 ORTHO':'ORTHO UNAVAILABLE')+' • '+peiDataStatus;
   peiDataStatus=src;
