@@ -1,0 +1,1 @@
+Temporary CI probe for the PEI 2020 aerial tile endpoint. This file is not part of the game data.
