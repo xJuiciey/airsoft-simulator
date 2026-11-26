@@ -1,0 +1,32 @@
+name: Validate game build
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Extract and syntax-check game script
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("index.html").read_text()
+          scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, re.S)
+          inline = [s for s in scripts if s.strip()]
+          if not inline:
+              raise SystemExit("No inline game script found")
+          Path("/tmp/game.js").write_text(inline[-1])
+          PY
+          node --check /tmp/game.js
+      - name: Verify cached PEI data pipeline hooks
+        run: |
+          grep -q "sturgeon-buildings.geojson" index.html
+          grep -q "sturgeon-roads.geojson" index.html
+          grep -q "sturgeon-nature.geojson" index.html
+          grep -q "function peiLoadNature" index.html

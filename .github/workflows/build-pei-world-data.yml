@@ -1,0 +1,108 @@
+name: Build PEI world data bundle
+on:
+  push:
+    branches: [feat/pei-world-data-rebuild]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-data:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Download Microsoft Canadian building footprints
+        run: |
+          curl -fL --retry 3 --retry-delay 2 --max-time 180 \
+            "https://minedbuildings.z5.web.core.windows.net/legacy/canadian-buildings-v2/PrinceEdwardIsland.zip" \
+            -o /tmp/pei-buildings.zip
+          unzip -l /tmp/pei-buildings.zip | head -30
+      - name: Build local PEI building, road and land-cover assets
+        run: |
+          mkdir -p assets/pei
+          cat > /tmp/build_assets.py <<'PY'
+          import json, zipfile, io, os, sys, urllib.parse, urllib.request, time
+          from pathlib import Path
+          B = (-62.5390, 46.1008, -62.5060, 46.1170)
+          zf = zipfile.ZipFile('/tmp/pei-buildings.zip')
+          files = [n for n in zf.namelist() if n.lower().endswith(('.geojson','.json'))]
+          if not files:
+              raise SystemExit('No GeoJSON file found in Microsoft PEI archive')
+          buildings = []
+          def coords_of(v):
+              if isinstance(v, (list,tuple)):
+                  if len(v)>=2 and isinstance(v[0],(int,float)) and isinstance(v[1],(int,float)):
+                      yield v[0],v[1]
+                  else:
+                      for q in v: yield from coords_of(q)
+          for name in files:
+              with zf.open(name) as f:
+                  data=json.load(io.TextIOWrapper(f,encoding='utf-8'))
+              feats=data.get('features',[]) if isinstance(data,dict) else []
+              for feat in feats:
+                  geom=feat.get('geometry') or {}
+                  pts=list(coords_of(geom.get('coordinates',[])))
+                  if not pts: continue
+                  xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
+                  if max(xs)<B[0] or min(xs)>B[2] or max(ys)<B[1] or min(ys)>B[3]: continue
+                  buildings.append({'type':'Feature','properties':{},'geometry':geom})
+          if not buildings:
+              raise SystemExit('No Microsoft building footprints found inside Sturgeon map bounds')
+          Path('assets/pei/sturgeon-buildings.geojson').write_text(json.dumps({'type':'FeatureCollection','features':buildings},separators=(',',':')))
+          print('Sturgeon building footprints:',len(buildings))
+          south,west,north,east=B[1],B[0],B[3],B[2]
+          query=f"""[out:json][timeout:30];(
+            way[highway]({south},{west},{north},{east});
+            way[waterway]({south},{west},{north},{east});
+            way[natural=water]({south},{west},{north},{east});
+          );out geom;"""
+          endpoints=[
+            'https://overpass-api.de/api/interpreter',
+            'https://overpass.kumi.systems/api/interpreter',
+            'https://ovp.dresel.systems/api-na/interpreter'
+          ]
+          osm=None; errors=[]
+          for endpoint in endpoints:
+              try:
+                  req=urllib.request.Request(endpoint+'?'+urllib.parse.urlencode({'data':query}),headers={'User-Agent':'PEIAirsoftSimulator/1.0'})
+                  with urllib.request.urlopen(req,timeout=40) as response: osm=json.load(response)
+                  if isinstance(osm,dict) and isinstance(osm.get('elements'),list): break
+                  osm=None
+              except Exception as e: errors.append(endpoint+': '+str(e))
+          if osm is None: raise SystemExit('All OSM mirrors failed: '+'; '.join(errors))
+          roads=[]; nature=[]
+          for el in osm['elements']:
+              tags=el.get('tags',{}); geom=el.get('geometry',[])
+              pts=[[p['lon'],p['lat']] for p in geom if 'lon' in p and 'lat' in p]
+              if len(pts)<2: continue
+              props={'highway':tags.get('highway',''),'name':tags.get('name',''),'surface':tags.get('surface','')}
+              if tags.get('highway'):
+                  roads.append({'type':'Feature','properties':props,'geometry':{'type':'LineString','coordinates':pts}})
+              elif tags.get('waterway'):
+                  nature.append({'type':'Feature','properties':{'kind':'waterway'},'geometry':{'type':'LineString','coordinates':pts}})
+              elif tags.get('natural')=='water' and pts[0]==pts[-1] and len(pts)>=4:
+                  nature.append({'type':'Feature','properties':{'kind':'water'},'geometry':{'type':'Polygon','coordinates':[pts]}})
+              elif (tags.get('landuse')=='forest' or tags.get('natural')=='wood') and pts[0]==pts[-1] and len(pts)>=4:
+                  nature.append({'type':'Feature','properties':{'kind':'forest'},'geometry':{'type':'Polygon','coordinates':[pts]}})
+          if len(roads)<2: raise SystemExit('OSM cache returned too few road lines')
+          Path('assets/pei/sturgeon-roads.geojson').write_text(json.dumps({'type':'FeatureCollection','features':roads},separators=(',',':')))
+          Path('assets/pei/sturgeon-nature.geojson').write_text(json.dumps({'type':'FeatureCollection','features':nature},separators=(',',':')))
+          print('Cached OSM roads:',len(roads),'nature features:',len(nature))
+          PY
+          python3 /tmp/build_assets.py
+      - name: Commit cached world data to the development branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/pei
+          if git diff --cached --quiet; then
+            echo "World data bundle already current"
+          else
+            git commit -m "Add cached PEI building, road and land-cover data"
+            TARGET_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+            git fetch origin "$TARGET_BRANCH"
+            git rebase "origin/$TARGET_BRANCH"
+            git push origin "HEAD:$TARGET_BRANCH"
+          fi
