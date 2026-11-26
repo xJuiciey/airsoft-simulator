@@ -401,7 +401,7 @@ async function peiLoadOfficialRoads(){
   if(!roads)throw new Error('PEI road GIS returned no usable lines');return roads;
  }finally{clearTimeout(timer)}
 }
-// Government of PEI's current 2026 surveyed building polygons; no OSM dependency.
+// Government of PEI's current 2026 surveyed building polygons; no OSM dependency. GIS query geometry is transformed into PEI's native grid.
 async function peiLoadOfficialBuildings(){
  const base='https://gis.princeedwardisland.ca/server/rest/services/GeoLincData/Building_Footprints_2026/MapServer/3/query';
  const params=new URLSearchParams({where:'1=1',geometry:[PEI_BOUNDS.west,PEI_BOUNDS.south,PEI_BOUNDS.east,PEI_BOUNDS.north].join(','),geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:'OBJECTID_1,Shape_Area,Shape_Length',returnGeometry:'true',outSR:'4326',f:'geojson',resultRecordCount:'2000'});
