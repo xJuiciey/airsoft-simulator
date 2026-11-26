@@ -324,57 +324,78 @@ function peiHeightAt(x,z){
  }
  return .7+Math.sin(x*.0017)*1.25+Math.cos(z*.00125)*.9+Math.sin((x+z)*.0008)*.55;
 }
+function peiMakeGroundTexture(){
+ const c=document.createElement('canvas');c.width=c.height=2048;
+ const x=c.getContext('2d'),W=c.width,H=c.height;
+ x.fillStyle='#526a43';x.fillRect(0,0,W,H);
+ let seed=42871;const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
+ // Irregular agricultural fields and pasture parcels break up the fallback into a readable PEI landscape.
+ for(let i=0;i<95;i++){
+  const cx=rnd()*W,cy=rnd()*H,rx=45+rnd()*210,ry=35+rnd()*175;
+  x.beginPath();for(let k=0;k<13;k++){const a=k/13*Math.PI*2,r=.78+rnd()*.42,px=cx+Math.cos(a)*rx*r,py=cy+Math.sin(a)*ry*r;k?x.lineTo(px,py):x.moveTo(px,py)}x.closePath();
+  const colors=['#61734a','#718052','#536b43','#7b8150','#5b7046','#687b50','#847f50'];
+  x.fillStyle=colors[Math.floor(rnd()*colors.length)];x.globalAlpha=.42+rnd()*.28;x.fill();x.globalAlpha=1;
+  x.strokeStyle='rgba(190,177,126,.22)';x.lineWidth=2+rnd()*3;x.stroke();
+ }
+ // Fine vegetation grain; deliberately generated locally so the ground never becomes a blank white plane.
+ for(let i=0;i<26000;i++){
+  const px=rnd()*W,py=rnd()*H,r=.6+rnd()*3.2;
+  x.fillStyle=rnd()<.5?'rgba(25,48,27,.20)':'rgba(188,174,111,.13)';
+  x.beginPath();x.ellipse(px,py,r*1.8,r, rnd()*Math.PI,0,Math.PI*2);x.fill();
+ }
+ // Small woodland patches, not a uniform green wash.
+ for(let i=0;i<155;i++){
+  const cx=rnd()*W,cy=rnd()*H,rad=8+rnd()*32;
+  for(let k=0;k<18;k++){const a=rnd()*Math.PI*2,r=rnd()*rad,rr=3+rnd()*8;x.fillStyle=rnd()<.5?'rgba(23,55,34,.34)':'rgba(37,75,42,.28)';x.beginPath();x.arc(cx+Math.cos(a)*r,cy+Math.sin(a)*r,rr,0,Math.PI*2);x.fill()}
+ }
+ const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace||tex.encoding;tex.wrapS=tex.wrapT=THREE.ClampToEdgeWrapping;tex.anisotropy=Math.min(8,R.capabilities.getMaxAnisotropy());tex.generateMipmaps=true;tex.minFilter=THREE.LinearMipmapLinearFilter;tex.magFilter=THREE.LinearFilter;tex.needsUpdate=true;return tex;
+}
 function peiAddGround(){
  const g=new THREE.PlaneGeometry(peiWorldWidth,peiWorldHeight,180,120);g.rotateX(-Math.PI/2);
  const a=g.attributes.position;for(let i=0;i<a.count;i++)a.setY(i,peiHeightAt(a.getX(i),a.getZ(i)));
  g.computeVertexNormals();
- const mat=peiOrthoTexture?new THREE.MeshBasicMaterial({map:peiOrthoTexture,color:0xffffff,toneMapped:false}):new THREE.MeshStandardMaterial({color:0x465b3e,roughness:1});
+ // Always start with a bundled-in-code, locally generated terrain texture. Aerial imagery can upgrade it,
+ // but a remote tile/CORS failure can never leave the player standing on a white plane.
+ const fallback=peiMakeGroundTexture();
+ const mat=new THREE.MeshBasicMaterial({map:peiOrthoTexture||fallback,color:0xffffff,toneMapped:false});
  peiGroundMesh=new THREE.Mesh(g,mat);peiGroundMesh.receiveShadow=true;PEI_SCENE.add(peiGroundMesh);
 }
+
 function peiRoad(points,width,mat){if(points.length<2)return;for(let i=0;i<points.length;i+=Math.max(1,Math.floor(points.length/8)))peiSceneRoadSamples.push(points[i]);const verts=[],idx=[];for(let i=0;i<points.length;i++){const p=points[i],a=points[Math.max(0,i-1)],b=points[Math.min(points.length-1,i+1)],dx=b.x-a.x,dz=b.z-a.z,n=Math.hypot(dx,dz)||1,ox=-dz/n*width*.5,oz=dx/n*width*.5,y=peiHeightAt(p.x,p.z)+.045;verts.push(p.x+ox,y,p.z+oz,p.x-ox,y,p.z-oz);if(i<points.length-1){const k=i*2;idx.push(k,k+2,k+1,k+1,k+2,k+3)}}const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geo.setIndex(idx);geo.computeVertexNormals();const mesh=new THREE.Mesh(geo,mat);mesh.receiveShadow=true;PEI_SCENE.add(mesh)}
 function peiBuildBuilding(points,tags){
- if(points.length<4)return;
- const pts=points.slice();
- if(Math.hypot(pts[0].x-pts[pts.length-1].x,pts[0].z-pts[pts.length-1].z)>.1)pts.push(pts[0]);
- let area=0,minX=Infinity,maxX=-Infinity,minZ=Infinity,maxZ=-Infinity;
- for(let i=0;i<pts.length-1;i++){area+=pts[i].x*pts[i+1].z-pts[i+1].x*pts[i].z;minX=Math.min(minX,pts[i].x);maxX=Math.max(maxX,pts[i].x);minZ=Math.min(minZ,pts[i].z);maxZ=Math.max(maxZ,pts[i].z)}
- area=Math.abs(area)*.5;
- if(area<5||area>18000)return;
- const levels=Number(tags&&tags['building:levels'])||0,raw=Number(tags&&tags.height)||0;
- const h=Math.max(2.8,Math.min(18,raw||levels*2.9||(area<28?3.1:area<180?5.6:area<650?7.2:9.2)));
- const shape=new THREE.Shape();shape.moveTo(pts[0].x,-pts[0].z);
- for(let i=1;i<pts.length;i++)shape.lineTo(pts[i].x,-pts[i].z);
- const base=peiHeightAt(pts[0].x,pts[0].z);
- const geo=new THREE.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false,curveSegments:2});
- geo.rotateX(-Math.PI/2);geo.computeVertexNormals();
- const palette=[0xaaa18e,0x918d82,0xb9b2a2,0x7d817b,0xc0b7a3,0x8c7767];
- const wall=new THREE.MeshStandardMaterial({color:palette[Math.floor(Math.random()*palette.length)],roughness:.9});
- const mesh=new THREE.Mesh(geo,wall);mesh.position.y=base;mesh.castShadow=true;mesh.receiveShadow=true;PEI_SCENE.add(mesh);peiHit.push(mesh);
- peiSceneBuildingSamples.push({x:pts.reduce((a,p)=>a+p.x,0)/pts.length,z:pts.reduce((a,p)=>a+p.z,0)/pts.length});
- peiBuildingBounds.push({minX,maxX,minZ,maxZ});
- const roof=new THREE.Mesh(new THREE.ShapeGeometry(shape),new THREE.MeshStandardMaterial({color:[0x51483e,0x62594d,0x454b4a,0x6a6257][Math.floor(Math.random()*4)],roughness:.95}));
- roof.rotation.x=-Math.PI/2;roof.position.y=base+h+.025;roof.receiveShadow=true;PEI_SCENE.add(roof);
- // Small inset windows along the surveyed footprint edges give every shell real facade detail.
- const glass=new THREE.MeshStandardMaterial({color:0x263b43,roughness:.28,metalness:.12});
- const trim=new THREE.MeshStandardMaterial({color:0xe1ddd0,roughness:.85});
- for(let i=0;i<pts.length-1;i++){
-  const a=pts[i],b=pts[i+1],dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz);
-  if(len<3.8)continue;
-  const angle=-Math.atan2(dz,dx),count=Math.min(5,Math.max(1,Math.floor(len/3.8)));
-  for(let n=0;n<count;n++){
-   const t=(n+.5)/count,x=a.x+dx*t,z=a.z+dz*t;
-   const w=Math.min(.95,len/count*.32),win=new THREE.Mesh(new THREE.BoxGeometry(w,.78,.075),glass);
-   win.position.set(x,base+Math.min(2.05,h*.43),z);win.rotation.y=angle;PEI_SCENE.add(win);
-   const frame=new THREE.Mesh(new THREE.BoxGeometry(w+.12,.9,.09),trim);
-   frame.position.set(x,base+Math.min(2.05,h*.43),z);frame.rotation.y=angle;PEI_SCENE.add(frame);
-  }
+ if(!points||points.length<4)return false;
+ let minX=Infinity,maxX=-Infinity,minZ=Infinity,maxZ=-Infinity;
+ for(const p of points){minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minZ=Math.min(minZ,p.z);maxZ=Math.max(maxZ,p.z)}
+ const w=maxX-minX,d=maxZ-minZ,area=w*d;
+ if(!Number.isFinite(area)||area<5||area>18000||w<1.8||d<1.8)return false;
+ const cx=(minX+maxX)*.5,cz=(minZ+maxZ)*.5,base=peiHeightAt(cx,cz);
+ const h=Math.max(3.0,Math.min(9.5,area<40?3.2:area<140?4.2:area<450?5.4:7.0));
+ const group=new THREE.Group();group.position.set(cx,base,cz);
+ const palette=[0xb9b09e,0x9f9a8c,0xc5b9a5,0x858c83,0xd0c5b1,0x927d6c,0xb4a08b];
+ const wall=new THREE.MeshStandardMaterial({color:palette[Math.floor(Math.random()*palette.length)],roughness:.92});
+ const body=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),wall);body.position.y=h*.5;body.castShadow=true;body.receiveShadow=true;group.add(body);peiHit.push(body);
+ const roofMat=new THREE.MeshStandardMaterial({color:[0x403a35,0x51483e,0x62594d,0x454b4a,0x6a6257][Math.floor(Math.random()*5)],roughness:.96});
+ const roofBase=new THREE.Mesh(new THREE.BoxGeometry(w*1.07,.22,d*1.07),roofMat);roofBase.position.y=h+.11;roofBase.castShadow=true;group.add(roofBase);
+ // Simple four-sided pitched roof: cheap geometry, visible silhouette, no external models.
+ const roofPeak=new THREE.Mesh(new THREE.ConeGeometry(1,1.05,4,1),roofMat);roofPeak.scale.set(w*.62,1,d*.62);roofPeak.rotation.y=Math.PI/4;roofPeak.position.y=h+.62;roofPeak.castShadow=true;group.add(roofPeak);
+ const glass=new THREE.MeshStandardMaterial({color:0x263f4b,roughness:.24,metalness:.08,emissive:0x101c22});
+ const trim=new THREE.MeshStandardMaterial({color:0xe4ded0,roughness:.82});
+ const frontZ=-d*.5-.045,windowY=Math.min(h*.58,2.0);
+ const windowCount=Math.max(1,Math.min(4,Math.floor(w/3.2)));
+ for(let i=0;i<windowCount;i++){
+  const x=-w*.5+(i+1)*w/(windowCount+1);
+  const frame=new THREE.Mesh(new THREE.BoxGeometry(.92,.94,.09),trim);frame.position.set(x,windowY,frontZ);group.add(frame);
+  const pane=new THREE.Mesh(new THREE.BoxGeometry(.72,.72,.1),glass);pane.position.set(x,windowY,frontZ-.012);group.add(pane);
  }
- // A simple, clearly visible entrance on the longest wall.
- let longest=0,edge=null;
- for(let i=0;i<pts.length-1;i++){const d=Math.hypot(pts[i+1].x-pts[i].x,pts[i+1].z-pts[i].z);if(d>longest){longest=d;edge=[pts[i],pts[i+1]]}}
- if(edge&&longest>2.4){const a=edge[0],b=edge[1],door=new THREE.Mesh(new THREE.BoxGeometry(.92,2.05,.1),new THREE.MeshStandardMaterial({color:0x493b2d,roughness:.9}));door.position.set((a.x+b.x)/2,base+1.025,(a.z+b.z)/2);door.rotation.y=-Math.atan2(b.z-a.z,b.x-a.x);PEI_SCENE.add(door)}
+ const door=new THREE.Mesh(new THREE.BoxGeometry(.92,2.05,.12),new THREE.MeshStandardMaterial({color:0x51402e,roughness:.9}));
+ door.position.set(Math.min(w*.22,Math.max(-w*.22,0)),1.025,frontZ-.035);group.add(door);
+ // A second side window makes the shell read as a building from oblique approaches.
+ if(d>4){const sideFrame=new THREE.Mesh(new THREE.BoxGeometry(.1,.9,.95),trim);sideFrame.position.set(w*.5+.045,windowY,0);group.add(sideFrame);const sidePane=new THREE.Mesh(new THREE.BoxGeometry(.11,.7,.73),glass);sidePane.position.set(w*.5+.055,windowY,0);group.add(sidePane)}
+ PEI_SCENE.add(group);
+ peiSceneBuildingSamples.push({x:cx,z:cz});
+ peiBuildingBounds.push({minX,maxX,minZ,maxZ});
+ return true;
 }
-function peiLabel(text,x,z){const c=document.createElement('canvas');c.width=512;c.height=96;const ctx=c.getContext('2d');ctx.fillStyle='rgba(8,16,12,.78)';ctx.fillRect(0,0,512,96);ctx.strokeStyle='#75bb7d';ctx.lineWidth=4;ctx.strokeRect(2,2,508,92);ctx.fillStyle='#f1f5ee';ctx.font='bold 34px monospace';ctx.textAlign='center';ctx.fillText(text,256,59);const tex=new THREE.CanvasTexture(c),sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));sp.position.set(x,18,z);sp.scale.set(62,12,1);PEI_SCENE.add(sp)}
 async function peiLoadOfficialRoads(){
  // Roads are built in GitHub Actions from an OSM regional extract and served locally.
  // This removes all browser-side Overpass/CORS/rate-limit dependencies.
@@ -421,17 +442,19 @@ async function peiLoadOfficialBuildings(){
  const res=await fetch('./assets/pei/sturgeon-buildings.geojson?v=20261126b',{cache:'reload'});
  if(!res.ok)throw new Error('Cached PEI building bundle unavailable ('+res.status+')');
  const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid cached building footprint GeoJSON');
- let count=0;
+ let count=0,skipped=0;
  data.features.forEach(feature=>{
   const g=feature.geometry;if(!g)return;
   const polygons=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
   polygons.forEach(poly=>{
-   if(!poly||!poly[0]||poly[0].length<4)return;
+   if(!poly||!poly[0]||poly[0].length<4){skipped++;return}
    const ring=poly[0].map(c=>peiXY(c[1],c[0]));
-   peiBuildBuilding(ring,{});count++;
+   if(peiBuildBuilding(ring,feature.properties||{}))count++;else skipped++;
   });
  });
- if(!count)throw new Error('Cached PEI building bundle contains no usable footprints');return count;
+ if(!count)throw new Error('Cached PEI building bundle contained no buildable footprints ('+skipped+' skipped)');
+ console.info('PEI buildings rendered:',count,'skipped:',skipped);
+ return count;
 }
 function peiAddTrees(){
  const total=1900,dummy=new THREE.Object3D();
