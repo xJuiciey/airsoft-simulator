@@ -278,17 +278,18 @@ const peiWorldWidth=(PEI_BOUNDS.east-PEI_BOUNDS.west)*111320*Math.cos(PEI_CENTER
 const peiWorldHeight=(PEI_BOUNDS.north-PEI_BOUNDS.south)*111320;
 let peiDemRaster=null,peiDemOffset=0,peiOrthoTexture=null,peiGroundMesh=null;
 function peiTileXY(lat,lon,z){const n=2**z,latR=Math.max(-85.05112878,Math.min(85.05112878,lat))*Math.PI/180;return{x:(lon+180)/360*n,y:(1-Math.asinh(Math.tan(latR))/Math.PI)/2*n}}
-async function peiTileMosaic(z,urlForTile){
+async function peiTileMosaic(z,urlForTile,allowPartial=false){
  const nw=peiTileXY(PEI_BOUNDS.north,PEI_BOUNDS.west,z),se=peiTileXY(PEI_BOUNDS.south,PEI_BOUNDS.east,z);
  const x0=Math.floor(nw.x),x1=Math.floor(se.x),y0=Math.floor(nw.y),y1=Math.floor(se.y);
  const mosaic=document.createElement('canvas');mosaic.width=(x1-x0+1)*256;mosaic.height=(y1-y0+1)*256;
- const ctx=mosaic.getContext('2d');
- const jobs=[];
- for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)jobs.push(new Promise((resolve,reject)=>{
-   const im=new Image();im.crossOrigin='anonymous';im.onload=()=>{ctx.drawImage(im,(x-x0)*256,(y-y0)*256,256,256);resolve()};
-   im.onerror=()=>reject(new Error('Tile unavailable '+z+'/'+x+'/'+y));im.src=urlForTile(z,x,y);
- }));
- await Promise.all(jobs);
+ const ctx=mosaic.getContext('2d');let loaded=0,next=0;
+ const coords=[];for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)coords.push({x,y});
+ async function worker(){while(next<coords.length){const {x,y}=coords[next++],urls=urlForTile(z,x,y),choices=Array.isArray(urls)?urls:[urls];let ok=false;
+  for(const url of choices){try{await new Promise((resolve,reject)=>{const im=new Image();im.crossOrigin='anonymous';const timer=setTimeout(()=>{im.src='';reject(new Error('Tile timeout'))},12000);im.onload=()=>{clearTimeout(timer);ctx.drawImage(im,(x-x0)*256,(y-y0)*256,256,256);resolve()};im.onerror=()=>{clearTimeout(timer);reject(new Error('Tile unavailable'))};im.src=url});ok=true;break}catch(e){}}
+  if(ok)loaded++;else if(!allowPartial)throw new Error('Map tile unavailable '+z+'/'+x+'/'+y);
+ }}
+ await Promise.all(Array.from({length:Math.min(6,coords.length)},()=>worker()));
+ if(!loaded)throw new Error('No map tiles loaded');
  const left=(nw.x-x0)*256,top=(nw.y-y0)*256,right=(se.x-x0)*256,bottom=(se.y-y0)*256;
  const crop=document.createElement('canvas');crop.width=Math.max(1,Math.round(right-left));crop.height=Math.max(1,Math.round(bottom-top));
  crop.getContext('2d').drawImage(mosaic,left,top,right-left,bottom-top,0,0,crop.width,crop.height);
@@ -303,8 +304,11 @@ async function peiLoadElevation(){
  peiDemRaster=raster;
 }
 async function peiLoadOrthophoto(){
- const canvas=await peiTileMosaic(16,(z,x,y)=>'https://tiles.arcgis.com/tiles/fRRBCludvuolCm5B/arcgis/rest/services/Ortho_2020_3857/MapServer/tile/'+z+'/'+y+'/'+x);
- const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace||tex.encoding;tex.anisotropy=Math.min(8,R.capabilities.getMaxAnisotropy());tex.needsUpdate=true;peiOrthoTexture=tex;
+ const canvas=await peiTileMosaic(16,(z,x,y)=>[
+  'https://tiles.arcgis.com/tiles/fRRBCludvuolCm5B/arcgis/rest/services/Ortho_2020_3857/MapServer/tile/'+z+'/'+y+'/'+x,
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/'+z+'/'+y+'/'+x
+ ],true);
+ const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace||tex.encoding;tex.anisotropy=Math.min(8,R.capabilities.getMaxAnisotropy());tex.generateMipmaps=true;tex.minFilter=THREE.LinearMipmapLinearFilter;tex.magFilter=THREE.LinearFilter;tex.needsUpdate=true;peiOrthoTexture=tex;
 }
 
 const peiHit=[],peiBuildingBounds=[],peiMaterials={road:new THREE.MeshStandardMaterial({color:0x343a39,roughness:.96}),roadMain:new THREE.MeshStandardMaterial({color:0x292f30,roughness:.92}),water:new THREE.MeshStandardMaterial({color:0x477f91,roughness:.24,metalness:.12}),roof:new THREE.MeshStandardMaterial({color:0x554c42,roughness:.9}),building:new THREE.MeshStandardMaterial({color:0x9a8e7b,roughness:.92}),building2:new THREE.MeshStandardMaterial({color:0x7e887c,roughness:.92}),tree:new THREE.MeshStandardMaterial({color:0x27452c,roughness:1}),trunk:new THREE.MeshStandardMaterial({color:0x493b2b,roughness:1})};
@@ -334,8 +338,23 @@ function peiFallback(){
  // No invented roads or buildings: keep the actual terrain and report missing OSM data.
  peiDataStatus='OSM DATA UNAVAILABLE';
 }
-async function peiLoadOSM(){const {south,west,north,east}=PEI_BOUNDS;const q=`[out:json][timeout:22];(way[highway](${south},${west},${north},${east});way[building](${south},${west},${north},${east});way[waterway](${south},${west},${north},${east});way[natural=water](${south},${west},${north},${east}););(._;>;);out body;`;const urls=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];let data=null;for(const url of urls){try{const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),26000);const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(q),signal:ctl.signal});clearTimeout(timer);if(!res.ok)throw new Error('HTTP '+res.status);data=await res.json();if(data&&data.elements)break}catch(e){data=null}}if(!data)throw new Error('OpenStreetMap data service unavailable');const nodes=new Map();data.elements.forEach(e=>{if(e.type==='node')nodes.set(e.id,peiXY(e.lat,e.lon))});let roads=0,buildings=0,waterways=0;data.elements.forEach(e=>{if(e.type!=='way'||!e.nodes)return;const pts=e.nodes.map(id=>nodes.get(id)).filter(Boolean);if(pts.length<2)return;const t=e.tags||{};if(t.highway){const widths={motorway:11,trunk:9,primary:8,secondary:7,tertiary:6,residential:4.6,unclassified:4.2,service:3.2,track:2.5,path:1.4,footway:1.3};const w=widths[t.highway]||3.2;peiRoad(pts,w,(t.highway==='primary'||t.highway==='secondary'||t.highway==='trunk')?peiMaterials.roadMain:peiMaterials.road);roads++}if(t.building){peiBuildBuilding(pts,t);buildings++}if(t.waterway){peiRoad(pts,t.waterway==='river'?7:2.5,peiMaterials.water);waterways++}if(t.natural==='water'&&pts.length>3){const closed=pts.slice();if(Math.hypot(closed[0].x-closed.at(-1).x,closed[0].z-closed.at(-1).z)>.1)closed.push(closed[0]);const sh=new THREE.Shape();sh.moveTo(closed[0].x,-closed[0].z);closed.slice(1).forEach(p=>sh.lineTo(p.x,-p.z));const g=new THREE.ShapeGeometry(sh);g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,peiMaterials.water);m.position.y=.2;PEI_SCENE.add(m);waterways++}});if(roads<2&&buildings<2)throw new Error('No usable OSM features returned');peiDataStatus=`OSM LIVE • ${roads} ROADS • ${buildings} BUILDINGS`;}
-function peiAddTrees(){const trunkGeo=new THREE.CylinderGeometry(.22,.34,4.5,5),leafGeo=new THREE.ConeGeometry(2.6,7,6),trunks=new THREE.InstancedMesh(trunkGeo,peiMaterials.trunk,850),leaves=new THREE.InstancedMesh(leafGeo,peiMaterials.tree,850),dummy=new THREE.Object3D();let count=0;for(let i=0;i<850;i++){const x=(Math.random()-.5)*2250,z=(Math.random()-.5)*1900;if(Math.hypot(x,z)<80)continue;if(peiRoadNear(x,z,13))continue;const y=peiHeightAt(x,z),scale=.65+Math.random()*.8;dummy.position.set(x,y+2.25*scale,z);dummy.scale.setScalar(scale);dummy.rotation.y=Math.random()*6.28;dummy.updateMatrix();trunks.setMatrixAt(count,dummy.matrix);dummy.position.y=y+7*scale;dummy.updateMatrix();leaves.setMatrixAt(count,dummy.matrix);count++}trunks.count=leaves.count=count;PEI_SCENE.add(trunks,leaves)}
+async function peiLoadOSM(){const {south,west,north,east}=PEI_BOUNDS;const q=`[out:json][timeout:25];(way[highway](${south},${west},${north},${east});way[building](${south},${west},${north},${east});way[waterway](${south},${west},${north},${east});way[natural=water](${south},${west},${north},${east}););(._;>;);out body;`;const urls=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];let data=null;for(const base of urls){try{const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),18000);const res=await fetch(base+'?data='+encodeURIComponent(q),{method:'GET',headers:{'Accept':'application/json'},signal:ctl.signal});clearTimeout(timer);if(!res.ok)throw new Error('HTTP '+res.status);const candidate=await res.json();if(candidate&&candidate.elements){data=candidate;break}}catch(e){data=null}}if(!data)throw new Error('OpenStreetMap data service unavailable');const nodes=new Map();data.elements.forEach(e=>{if(e.type==='node')nodes.set(e.id,peiXY(e.lat,e.lon))});let roads=0,buildings=0,waterways=0;data.elements.forEach(e=>{if(e.type!=='way'||!e.nodes)return;const pts=e.nodes.map(id=>nodes.get(id)).filter(Boolean);if(pts.length<2)return;const t=e.tags||{};if(t.highway){const widths={motorway:11,trunk:9,primary:8,secondary:7,tertiary:6,residential:4.6,unclassified:4.2,service:3.2,track:2.5,path:1.4,footway:1.3};const w=widths[t.highway]||3.2;peiRoad(pts,w,(t.highway==='primary'||t.highway==='secondary'||t.highway==='trunk')?peiMaterials.roadMain:peiMaterials.road);roads++}if(t.building){peiBuildBuilding(pts,t);buildings++}if(t.waterway){peiRoad(pts,t.waterway==='river'?7:2.5,peiMaterials.water);waterways++}if(t.natural==='water'&&pts.length>3){const closed=pts.slice();if(Math.hypot(closed[0].x-closed.at(-1).x,closed[0].z-closed.at(-1).z)>.1)closed.push(closed[0]);const sh=new THREE.Shape();sh.moveTo(closed[0].x,-closed[0].z);closed.slice(1).forEach(p=>sh.lineTo(p.x,-p.z));const g=new THREE.ShapeGeometry(sh);g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,peiMaterials.water);m.position.y=.2;PEI_SCENE.add(m);waterways++}});if(roads<2&&buildings<2)throw new Error('No usable OSM features returned');peiDataStatus=`OSM LIVE • ${roads} ROADS • ${buildings} BUILDINGS`;}
+function peiAddTrees(){
+ const total=720,dummy=new THREE.Object3D(),trunkGeo=new THREE.CylinderGeometry(.13,.28,5.8,10),trunks=new THREE.InstancedMesh(trunkGeo,peiMaterials.trunk,total);
+ const pineGeos=[new THREE.ConeGeometry(2.25,4.6,12),new THREE.ConeGeometry(1.9,4.2,12),new THREE.ConeGeometry(1.55,3.8,12),new THREE.ConeGeometry(1.15,3.2,12)];
+ const pineMats=[new THREE.MeshStandardMaterial({color:0x183c29,roughness:1}),new THREE.MeshStandardMaterial({color:0x244b31,roughness:1}),new THREE.MeshStandardMaterial({color:0x315b39,roughness:1}),new THREE.MeshStandardMaterial({color:0x3c6841,roughness:1})];
+ const pines=pineGeos.map((g,i)=>new THREE.InstancedMesh(g,pineMats[i],total));
+ const crownGeo=new THREE.SphereGeometry(1,14,12),crownMat=new THREE.MeshStandardMaterial({color:0x315638,roughness:1}),crowns=[0,1,2].map(()=>new THREE.InstancedMesh(crownGeo,crownMat,total*3));
+ let count=0,deciduous=0;
+ for(let i=0;i<total;i++){const x=(Math.random()-.5)*2250,z=(Math.random()-.5)*1900;if(Math.hypot(x,z)<85||peiRoadNear(x,z,15))continue;
+  const y=peiHeightAt(x,z),scale=.72+Math.random()*.85,rot=Math.random()*Math.PI*2;
+  dummy.position.set(x,y+2.9*scale,z);dummy.scale.set(scale,scale,scale);dummy.rotation.set(0,rot,0);dummy.updateMatrix();trunks.setMatrixAt(count,dummy.matrix);
+  if(Math.random()<.72){const heights=[2.2,3.25,4.25,5.25],sizes=[1,.84,.68,.5];for(let k=0;k<4;k++){dummy.position.set(x,y+heights[k]*scale,z);dummy.scale.setScalar(scale*sizes[k]);dummy.rotation.set(0,rot+k*.35,0);dummy.updateMatrix();pines[k].setMatrixAt(count,dummy.matrix)}}
+  else{const offsets=[[0,5.2,0],[-1.1,4.8,.5],[1.0,4.9,-.5]];for(let k=0;k<3;k++){dummy.position.set(x+offsets[k][0]*scale,y+offsets[k][1]*scale,z+offsets[k][2]*scale);dummy.scale.set(1.45*scale,1.75*scale,1.35*scale);dummy.rotation.set(0,rot+k,0);dummy.updateMatrix();crowns[k].setMatrixAt(deciduous,dummy.matrix)}deciduous++}
+  count++;
+ }
+ trunks.count=count;pines.forEach(m=>m.count=count);crowns.forEach(m=>m.count=deciduous);PEI_SCENE.add(trunks,...pines,...crowns);
+}
 function peiRoadNear(x,z,r){for(const o of peiSceneRoadSamples){if(Math.hypot(x-o.x,z-o.z)<r)return true}for(const o of peiSceneBuildingSamples){if(Math.hypot(x-o.x,z-o.z)<r+12)return true}return false}
 const peiSceneRoadSamples=[],peiSceneBuildingSamples=[];
 async function startPEIWorld(){
