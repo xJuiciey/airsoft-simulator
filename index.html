@@ -485,24 +485,25 @@ async function startPEIWorld(){
  bots.forEach(b=>{b.on=false;b.alive=false;b.g.position.set(0,-500,0)});
  if(activeScene!==PEI_SCENE){S.remove(cam);PEI_SCENE.add(cam);activeScene=PEI_SCENE}
  peiLoading=true;
- const jobs=[];
- if(!peiGroundBuilt)jobs.push((async()=>{
+ // Elevation and imagery must finish before any road/building geometry samples the ground.
+ if(!peiGroundBuilt){
   peiDataStatus='LOADING PEI AERIAL + TERRAIN DATA';
-  const results=await Promise.allSettled([peiLoadElevation(),peiLoadOrthophoto()]);
-  const demOK=results[0].status==='fulfilled',orthoOK=results[1].status==='fulfilled';
-  if(!demOK)console.warn('PEI elevation tiles unavailable',results[0].reason);
-  if(!orthoOK)console.warn('PEI orthophoto tiles unavailable',results[1].reason);
+  const terrainResults=await Promise.allSettled([peiLoadElevation(),peiLoadOrthophoto()]);
+  const demOK=terrainResults[0].status==='fulfilled',orthoOK=terrainResults[1].status==='fulfilled';
+  if(!demOK)console.warn('PEI elevation tiles unavailable',terrainResults[0].reason);
+  if(!orthoOK)console.warn('PEI orthophoto tiles unavailable',terrainResults[1].reason);
   peiAddGround();peiGroundBuilt=true;
   peiLabel('STURGEON • KINGS COUNTY',0,-28);
   peiDataStatus=(demOK?'TERRAIN DATA':'TERRAIN FALLBACK')+' • '+(orthoOK?'2020 PEI AERIAL':'AERIAL TILE FALLBACK');
- })());
- if(!peiRoadsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialRoads();peiRoadsLoaded=true;peiDataStatus+=' • '+n+' OFFICIAL ROAD SEGMENTS'})());
+ }
+ const jobs=[];
+ if(!peiRoadsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialRoads();peiRoadsLoaded=true;peiDataStatus+=' • '+n+' CACHED ROAD SEGMENTS'})());
  if(!peiBuildingsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialBuildings();peiBuildingsLoaded=true;peiDataStatus+=' • '+n+' BUILDING FOOTPRINTS'})());
- if(!peiNatureLoaded)jobs.push((async()=>{const n=await peiLoadNature();peiNatureLoaded=true;peiDataStatus+=' • '+n+' LAND-COVER FEATURES'})());
+ if(!peiNatureLoaded)jobs.push((async()=>{const n=await peiLoadNature();peiNatureLoaded=true;peiDataStatus+=' • '+n+' WATER / FOREST FEATURES'})());
  const results=await Promise.allSettled(jobs);
  const failures=results.filter(r=>r.status==='rejected').map(r=>String(r.reason&&r.reason.message||r.reason));
  if(failures.length)console.warn('PEI world data tasks failed:',failures);
- // Build vegetation only after the real road and building locations are known.
+ // Place woodland only after the actual road and building positions are in the scene.
  if(!peiTreesBuilt){peiAddTrees();peiTreesBuilt=true}
  peiBuilt=peiGroundBuilt||peiRoadsLoaded||peiBuildingsLoaded||peiTreesBuilt;
  peiLoading=false;
@@ -511,7 +512,7 @@ async function startPEIWorld(){
  statusParts.push(peiDemRaster?'ELEVATION':'TERRAIN FALLBACK');
  statusParts.push(peiRoadsLoaded?'CACHED ROAD NETWORK':'ROADS BUNDLE MISSING');
  statusParts.push(peiBuildingsLoaded?'REAL BUILDING FOOTPRINTS':'BUILDINGS BUNDLE MISSING');
- statusParts.push(peiNatureLoaded?'WATER + FOREST DATA':'LAND-COVER BUNDLE MISSING');
+ statusParts.push(peiNatureLoaded?'WATER / FOREST DATA':'LAND-COVER BUNDLE MISSING');
  peiDataStatus=statusParts.join(' • ');
  if(failures.length)feed('MAP DATA WARNING: '+failures[0].slice(0,90));
  else feed('PEI MAP DATA LOADED: '+(peiSceneBuildingSamples.length)+' BUILDINGS');
