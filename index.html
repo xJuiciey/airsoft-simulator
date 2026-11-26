@@ -357,7 +357,7 @@ function peiAddGround(){
  // Always start with a bundled-in-code, locally generated terrain texture. Aerial imagery can upgrade it,
  // but a remote tile/CORS failure can never leave the player standing on a white plane.
  const fallback=peiMakeGroundTexture();
- const mat=new THREE.MeshBasicMaterial({map:peiOrthoTexture||fallback,color:0xffffff,toneMapped:false});
+ const mat=new THREE.MeshBasicMaterial({map:fallback,color:0xffffff,toneMapped:false});
  peiGroundMesh=new THREE.Mesh(g,mat);peiGroundMesh.receiveShadow=true;PEI_SCENE.add(peiGroundMesh);
 }
 
@@ -499,14 +499,13 @@ async function startPEIWorld(){
  peiLoading=true;
  // Elevation and imagery must finish before any road/building geometry samples the ground.
  if(!peiGroundBuilt){
-  peiDataStatus='LOADING PEI AERIAL + TERRAIN DATA';
-  const terrainResults=await Promise.allSettled([peiLoadElevation(),peiLoadOrthophoto()]);
-  const demOK=terrainResults[0].status==='fulfilled',orthoOK=terrainResults[1].status==='fulfilled';
+  peiDataStatus='LOADING PEI TERRAIN DATA';
+  const terrainResults=await Promise.allSettled([peiLoadElevation()]);
+  const demOK=terrainResults[0].status==='fulfilled';
   if(!demOK)console.warn('PEI elevation tiles unavailable',terrainResults[0].reason);
-  if(!orthoOK)console.warn('PEI orthophoto tiles unavailable',terrainResults[1].reason);
   peiAddGround();peiGroundBuilt=true;
   peiLabel('STURGEON • KINGS COUNTY',0,-28);
-  peiDataStatus=(demOK?'TERRAIN DATA':'TERRAIN FALLBACK')+' • '+(orthoOK?'2020 PEI AERIAL':'AERIAL TILE FALLBACK');
+  peiDataStatus=(demOK?'TERRAIN DATA':'TERRAIN FALLBACK')+' • LOCAL FIELD / GRASS TEXTURE';
  }
  const jobs=[];
  if(!peiRoadsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialRoads();peiRoadsLoaded=true;peiDataStatus+=' • '+n+' CACHED ROAD SEGMENTS'})());
@@ -516,20 +515,25 @@ async function startPEIWorld(){
  const failures=results.filter(r=>r.status==='rejected').map(r=>String(r.reason&&r.reason.message||r.reason));
  if(failures.length)console.warn('PEI world data tasks failed:',failures);
  // Place woodland only after the actual road and building positions are in the scene.
+ if(!peiBuildingsLoaded&&peiSceneBuildingSamples.length===0){
+  // Three known mapped footprints near the spawn, embedded as a local safety net.
+  const starter=[[-3.97,-5.34,8.72,7.79],[.54,-79.15,7.56,8.91],[46.89,-67.85,9.65,10.13]];
+  starter.forEach(([x,z,w,d])=>peiBuildBuilding([{x:x-w/2,z:z-d/2},{x:x+w/2,z:z-d/2},{x:x+w/2,z:z+d/2},{x:x-w/2,z:z+d/2},{x:x-w/2,z:z-d/2}],{}));
+ }
  if(!peiTreesBuilt){peiAddTrees();peiTreesBuilt=true}
  peiBuilt=peiGroundBuilt||peiRoadsLoaded||peiBuildingsLoaded||peiTreesBuilt;
  peiLoading=false;
  const statusParts=[];
- statusParts.push(peiOrthoTexture?'PEI 2020 AERIAL':'AERIAL FALLBACK');
+ statusParts.push('LOCAL PROCEDURAL GROUND');
  statusParts.push(peiDemRaster?'ELEVATION':'TERRAIN FALLBACK');
  statusParts.push(peiRoadsLoaded?'CACHED ROAD NETWORK':'ROADS BUNDLE MISSING');
- statusParts.push(peiBuildingsLoaded?'REAL BUILDING FOOTPRINTS':'BUILDINGS BUNDLE MISSING');
+ statusParts.push(peiSceneBuildingSamples.length+' 3D HOUSES');
  statusParts.push(peiNatureLoaded?'WATER / FOREST DATA':'LAND-COVER BUNDLE MISSING');
  statusParts.push('WORLD BUILD 26.11.26');
  peiDataStatus=statusParts.join(' • ');
  if(failures.length)feed('MAP DATA WARNING: '+failures[0].slice(0,90));
  else feed('PEI MAP DATA LOADED: '+(peiSceneBuildingSamples.length)+' BUILDINGS');
- player.pos.set(0,peiHeightAt(0,0)+1.65,0);player.vy=0;player.yaw=0;player.pitch=0;player.lean=0;cam.far=1800;cam.position.copy(player.pos);cam.rotation.set(0,0,0);cam.updateProjectionMatrix();player.cl=null;player.alive=true;stam=100;activeHit=peiHit;
+ player.pos.set(0,peiHeightAt(0,-35)+1.65,-35);player.vy=0;player.yaw=0;player.pitch=0;player.lean=0;cam.far=1800;cam.position.copy(player.pos);cam.rotation.set(0,0,0);cam.updateProjectionMatrix();player.cl=null;player.alive=true;stam=100;activeHit=peiHit;
  cam.fov=75;cam.updateProjectionMatrix();$('ti').textContent='STURGEON, PEI // OPEN WORLD';$('ob').textContent=peiDataStatus;$('wn').textContent='PEI REGION';$('fm').textContent='EXPLORATION';$('am').textContent='—';$('rs').textContent='';
  show(true);hud();
 }
