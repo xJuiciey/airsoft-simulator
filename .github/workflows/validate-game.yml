@@ -31,6 +31,23 @@ jobs:
           curl -fL --retry 2 --max-time 45 "https://tiles.arcgis.com/tiles/fRRBCludvuolCm5B/arcgis/rest/services/Ortho_2020_3857/MapServer/tile/16/23286/21386" -o /tmp/pei-aerial.png
           file /tmp/pei-aerial.png
           test "$(stat -c%s /tmp/pei-aerial.png)" -gt 1000
+          python3 - <<'PY'
+          import concurrent.futures, urllib.request
+          base='https://tiles.arcgis.com/tiles/fRRBCludvuolCm5B/arcgis/rest/services/Ortho_2020_3857/MapServer/tile/16/{y}/{x}'
+          tiles=[(x,y) for y in range(23284,23289) for x in range(21383,21390)]
+          def check(t):
+              x,y=t; req=urllib.request.Request(base.format(x=x,y=y),headers={'User-Agent':'PEI-Airsoft-Map-Test/1.0'})
+              try:
+                  with urllib.request.urlopen(req,timeout=15) as r:
+                      data=r.read(); return (x,y,r.status,len(data),r.headers.get('Access-Control-Allow-Origin'),data[:8].hex())
+              except Exception as e: return (x,y,'ERR',str(e))
+          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+              results=list(ex.map(check,tiles))
+          good=[r for r in results if r[2]==200 and r[3]>1000]
+          print('PEI aerial tiles valid:',len(good),'of',len(tiles))
+          for r in results: print(r)
+          if len(good)<30: raise SystemExit('Fewer than 30 of 35 PEI aerial tiles are available')
+          PY
       - name: Verify cached PEI data pipeline hooks
         run: |
           grep -q "sturgeon-buildings.geojson" index.html
