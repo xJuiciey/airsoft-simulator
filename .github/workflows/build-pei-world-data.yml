@@ -1,5 +1,7 @@
 name: Build PEI world data bundle
 on:
+  push:
+    branches: [feat/pei-world-data-rebuild]
   pull_request:
     types: [opened, reopened]
     branches: [main]
