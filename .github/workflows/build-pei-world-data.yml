@@ -2,9 +2,6 @@ name: Build PEI world data bundle
 on:
   push:
     branches: [feat/pei-world-data-rebuild]
-  pull_request:
-    types: [opened, reopened]
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
@@ -15,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
+          ref: ${{ github.ref_name }}
       - name: Download Microsoft Canadian building footprints
         run: |
           curl -fL --retry 3 --retry-delay 2 --max-time 180 \
@@ -107,7 +104,8 @@ jobs:
             echo "World data bundle already current"
           else
             git commit -m "Add cached PEI building, road and land-cover data"
-            git fetch origin "${GITHUB_HEAD_REF}"
-            git rebase "origin/${GITHUB_HEAD_REF}"
-            git push origin "HEAD:${GITHUB_HEAD_REF}"
+            TARGET_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+            git fetch origin "$TARGET_BRANCH"
+            git rebase "origin/$TARGET_BRANCH"
+            git push origin "HEAD:$TARGET_BRANCH"
           fi
