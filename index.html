@@ -434,17 +434,17 @@ async function peiLoadOfficialBuildings(){
  if(!count)throw new Error('Cached PEI building bundle contains no usable footprints');return count;
 }
 function peiAddTrees(){
- const total=1450,dummy=new THREE.Object3D();
- const trunkGeo=new THREE.CylinderGeometry(.12,.32,6.8,12),trunkMat=new THREE.MeshStandardMaterial({color:0x55412e,roughness:1});
+ const total=1900,dummy=new THREE.Object3D();
+ const trunkGeo=new THREE.CylinderGeometry(.12,.32,7.2,16),trunkMat=new THREE.MeshStandardMaterial({color:0x55412e,roughness:1});
  const trunks=new THREE.InstancedMesh(trunkGeo,trunkMat,total);
- const pineGeos=[new THREE.ConeGeometry(2.35,4.8,20),new THREE.ConeGeometry(2.05,4.5,20),new THREE.ConeGeometry(1.72,4.1,20),new THREE.ConeGeometry(1.35,3.7,20)];
+ const pineGeos=[new THREE.ConeGeometry(2.45,4.7,28,2),new THREE.ConeGeometry(2.2,4.5,28,2),new THREE.ConeGeometry(1.92,4.2,28,2),new THREE.ConeGeometry(1.62,3.9,28,2),new THREE.ConeGeometry(1.28,3.5,28,2)];
  const pineMats=[0x173b29,0x204a31,0x2b5738,0x376343].map(c=>new THREE.MeshStandardMaterial({color:c,roughness:1}));
  const pines=pineGeos.map((g,i)=>new THREE.InstancedMesh(g,pineMats[i],total));
- const crownGeo=new THREE.SphereGeometry(1,20,16),crownMats=[0x31583a,0x3c6842,0x496f47].map(c=>new THREE.MeshStandardMaterial({color:c,roughness:1}));
- const crowns=crownMats.map(m=>new THREE.InstancedMesh(crownGeo,m,total*3));
+ const crownGeo=new THREE.SphereGeometry(1,16,12),crownMats=[0x31583a,0x3c6842,0x496f47].map(c=>new THREE.MeshStandardMaterial({color:c,roughness:1}));
+ const crowns=crownMats.map(m=>new THREE.InstancedMesh(crownGeo,m,total*5));
  // Clustered woodland stands rather than an evenly scattered field of identical cones.
  let seed=9137;const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
- const stands=Array.from({length:82},()=>({x:(rnd()-.5)*2200,z:(rnd()-.5)*1800,r:35+rnd()*115}));
+ const stands=Array.from({length:105},()=>({x:(rnd()-.5)*2200,z:(rnd()-.5)*1800,r:42+rnd()*125}));
  let count=0,pineCount=0,deciduous=0;
  for(let i=0;i<total;i++){
   const stand=stands[Math.floor(rnd()*stands.length)],a=rnd()*Math.PI*2,r=Math.sqrt(rnd())*stand.r;
@@ -453,12 +453,12 @@ function peiAddTrees(){
   const y=peiHeightAt(x,z),scale=.78+rnd()*.72,rot=rnd()*Math.PI*2;
   dummy.position.set(x,y+3.25*scale,z);dummy.scale.set(scale,scale,scale);dummy.rotation.set(0,rot,0);dummy.updateMatrix();trunks.setMatrixAt(count,dummy.matrix);
   if(rnd()<.68){
-   const heights=[2.35,3.55,4.75,5.85],sizes=[1,.88,.73,.57];
-   for(let k=0;k<4;k++){dummy.position.set(x,y+heights[k]*scale,z);dummy.scale.set(scale*sizes[k],scale*sizes[k],scale*sizes[k]);dummy.rotation.set(0,rot+k*.31,0);dummy.updateMatrix();pines[k].setMatrixAt(pineCount,dummy.matrix)}
+   const heights=[2.15,3.15,4.15,5.15,6.05],sizes=[1,.92,.82,.7,.56];
+   for(let k=0;k<5;k++){dummy.position.set(x,y+heights[k]*scale,z);dummy.scale.set(scale*sizes[k],scale*sizes[k],scale*sizes[k]);dummy.rotation.set(0,rot+k*.31,0);dummy.updateMatrix();pines[k].setMatrixAt(pineCount,dummy.matrix)}
    pineCount++;
   }else{
-   const offsets=[[0,5.5,0],[-1.15,5,.55],[1.05,5.15,-.6]];
-   for(let k=0;k<3;k++){dummy.position.set(x+offsets[k][0]*scale,y+offsets[k][1]*scale,z+offsets[k][2]*scale);dummy.scale.set(1.35*scale,1.65*scale,1.28*scale);dummy.rotation.set(.04*(rnd()-.5),rot+k*1.7,.04*(rnd()-.5));dummy.updateMatrix();crowns[k].setMatrixAt(deciduous,dummy.matrix)}
+   const offsets=[[0,5.5,0],[-1.25,5.05,.55],[1.15,5.2,-.65],[-.65,6.0,-1.05],[.75,6.1,1.0]];
+   for(let k=0;k<5;k++){dummy.position.set(x+offsets[k][0]*scale,y+offsets[k][1]*scale,z+offsets[k][2]*scale);dummy.scale.set(1.35*scale,1.65*scale,1.28*scale);dummy.rotation.set(.04*(rnd()-.5),rot+k*1.7,.04*(rnd()-.5));dummy.updateMatrix();crowns[k].setMatrixAt(deciduous,dummy.matrix)}
    deciduous++;
   }
   count++;
