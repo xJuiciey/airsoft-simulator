@@ -35,20 +35,20 @@ jobs:
           ROADS="https://gis.princeedwardisland.ca/server/rest/services/road_centerline/FeatureServer/0/query"
           curl -fsS -D /tmp/building-headers -o /tmp/buildings.json -G "$BUILDINGS" \
             --data-urlencode "where=1=1" \
-            --data-urlencode "geometry=-62.5390,46.1008,-62.5060,46.1170" \
+            --data-urlencode "geometry=435645.99,672361.09,438186.34,674177.25" \
             --data-urlencode "geometryType=esriGeometryEnvelope" \
-            --data-urlencode "inSR=4326" \
+            --data-urlencode "inSR=2291" \
             --data-urlencode "outFields=OBJECTID_1" \
             --data-urlencode "returnGeometry=false" \
             --data-urlencode "returnCountOnly=true" \
             --data-urlencode "f=pjson"
-          jq -e '.count > 0' /tmp/buildings.json
+          cat /tmp/buildings.json\n          jq -e '.count > 0' /tmp/buildings.json
           grep -qi 'access-control-allow-origin: \*' /tmp/building-headers
           curl -fsS -D /tmp/road-headers -o /tmp/roads.json -G "$ROADS" \
             --data-urlencode "where=1=1" \
-            --data-urlencode "geometry=-62.5390,46.1008,-62.5060,46.1170" \
+            --data-urlencode "geometry=435645.99,672361.09,438186.34,674177.25" \
             --data-urlencode "geometryType=esriGeometryEnvelope" \
-            --data-urlencode "inSR=4326" \
+            --data-urlencode "inSR=2291" \
             --data-urlencode "outFields=*" \
             --data-urlencode "returnGeometry=false" \
             --data-urlencode "returnCountOnly=true" \
