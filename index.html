@@ -470,7 +470,7 @@ const peiSceneRoadSamples=[],peiSceneBuildingSamples=[];
 let peiGroundBuilt=false,peiTreesBuilt=false,peiRoadsLoaded=false,peiBuildingsLoaded=false,peiNatureLoaded=false;
 async function startPEIWorld(){
  if(peiLoading)return;
- peiMode=true;cfg.practice=false;started=true;playing=false;joy.x=joy.y=0;firing=false;snd.on=0;sndHide();bbs.forEach(b=>b.kill());player.ads=false;
+ peiMode=true;cfg.practice=false;started=true;playing=true;joy.x=joy.y=0;firing=false;snd.on=0;sndHide();bbs.forEach(b=>b.kill());player.ads=false;
  bots.forEach(b=>{b.on=false;b.alive=false;b.g.position.set(0,-500,0)});
  if(activeScene!==PEI_SCENE){S.remove(cam);PEI_SCENE.add(cam);activeScene=PEI_SCENE}
  peiLoading=true;
@@ -506,7 +506,7 @@ async function startPEIWorld(){
  peiDataStatus=statusParts.join(' • ');
  if(failures.length)feed('MAP DATA WARNING: '+failures[0].slice(0,90));
  else feed('PEI MAP DATA LOADED: '+(peiSceneBuildingSamples.length)+' BUILDINGS');
- player.pos.set(0,peiHeightAt(0,0)+1.65,0);player.vy=0;player.yaw=0;player.pitch=0;player.lean=0;player.cl=null;player.alive=true;stam=100;activeHit=peiHit;
+ player.pos.set(0,peiHeightAt(0,0)+1.65,0);player.vy=0;player.yaw=0;player.pitch=0;player.lean=0;cam.far=1800;cam.position.copy(player.pos);cam.rotation.set(0,0,0);cam.updateProjectionMatrix();player.cl=null;player.alive=true;stam=100;activeHit=peiHit;
  cam.fov=75;cam.updateProjectionMatrix();$('ti').textContent='STURGEON, PEI // OPEN WORLD';$('ob').textContent=peiDataStatus;$('wn').textContent='PEI REGION';$('fm').textContent='EXPLORATION';$('am').textContent='—';$('rs').textContent='';
  show(true);hud();
 }
