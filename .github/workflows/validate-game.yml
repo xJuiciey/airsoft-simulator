@@ -32,12 +32,15 @@ jobs:
       - name: Diagnose PEI building GIS query formats
         run: |
           BASE="https://gis.princeedwardisland.ca/server/rest/services/GeoLincData/Building_Footprints_2026/MapServer/3/query"
-          curl -fsS -G "$BASE" --data-urlencode "where=1=1" --data-urlencode "outFields=OBJECTID_1" --data-urlencode "returnCountOnly=true" --data-urlencode "f=pjson" -o /tmp/all.json
-          echo "Whole-layer response:"
-          cat /tmp/all.json
-          curl -fsS -G "$BASE" --data-urlencode "where=1=1" --data-urlencode "outFields=OBJECTID_1" --data-urlencode 'geometry={"xmin":-62.539,"ymin":46.1008,"xmax":-62.506,"ymax":46.117,"spatialReference":{"wkid":4326}}' --data-urlencode "geometryType=esriGeometryEnvelope" --data-urlencode "inSR=4326" --data-urlencode "spatialRel=esriSpatialRelIntersects" --data-urlencode "returnCountOnly=true" --data-urlencode "f=pjson" -o /tmp/wgs84.json
+          curl -fsS -G "$BASE" --data-urlencode "where=1=1" --data-urlencode "outFields=*" --data-urlencode "returnGeometry=true" --data-urlencode "resultRecordCount=5" --data-urlencode "f=json" -o /tmp/simple.json
+          echo "Simple query response:"
+          cat /tmp/simple.json
+          curl -fsS -G "$BASE" --data-urlencode "where=1=1" --data-urlencode "outFields=*" --data-urlencode 'geometry={"xmin":-62.539,"ymin":46.1008,"xmax":-62.506,"ymax":46.117,"spatialReference":{"wkid":4326}}' --data-urlencode "geometryType=esriGeometryEnvelope" --data-urlencode "inSR=4326" --data-urlencode "spatialRel=esriSpatialRelIntersects" --data-urlencode "returnGeometry=true" --data-urlencode "resultRecordCount=5" --data-urlencode "f=geojson" -o /tmp/wgs84.json
           echo "WGS84 envelope response:"
           cat /tmp/wgs84.json
-          curl -fsS -G "$BASE" --data-urlencode "where=1=1" --data-urlencode "outFields=OBJECTID_1" --data-urlencode 'geometry={"xmin":435645.99,"ymin":672361.09,"xmax":438186.34,"ymax":674177.25,"spatialReference":{"wkid":2291}}' --data-urlencode "geometryType=esriGeometryEnvelope" --data-urlencode "inSR=2291" --data-urlencode "spatialRel=esriSpatialRelIntersects" --data-urlencode "returnCountOnly=true" --data-urlencode "f=pjson" -o /tmp/native.json
+          curl -fsS -G "$BASE" --data-urlencode "where=1=1" --data-urlencode "outFields=*" --data-urlencode 'geometry={"xmin":435645.99,"ymin":672361.09,"xmax":438186.34,"ymax":674177.25,"spatialReference":{"wkid":2291}}' --data-urlencode "geometryType=esriGeometryEnvelope" --data-urlencode "inSR=2291" --data-urlencode "spatialRel=esriSpatialRelIntersects" --data-urlencode "returnGeometry=true" --data-urlencode "resultRecordCount=5" --data-urlencode "f=geojson" -o /tmp/native.json
           echo "Native PEI envelope response:"
           cat /tmp/native.json
+          jq -e 'has("error") | not' /tmp/simple.json
+          jq -e 'has("error") | not' /tmp/wgs84.json
+          jq -e 'has("error") | not' /tmp/native.json
