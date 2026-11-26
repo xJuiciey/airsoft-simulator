@@ -1,5 +1,7 @@
 name: Validate game build
 on:
+  push:
+    branches: [test/pei-aerial-tile-check]
   pull_request:
     branches: [main]
   workflow_dispatch:
