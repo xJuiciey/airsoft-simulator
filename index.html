@@ -380,50 +380,62 @@ function peiFallback(){
  peiDataStatus='OSM DATA UNAVAILABLE';
 }
 async function peiLoadOfficialRoads(){
- const base='https://gis.princeedwardisland.ca/server/rest/services/road_centerline/FeatureServer/0/query';
- const params=new URLSearchParams({where:'1=1',geometry:[PEI_BOUNDS.west,PEI_BOUNDS.south,PEI_BOUNDS.east,PEI_BOUNDS.north].join(','),geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:'*',returnGeometry:'true',outSR:'4326',f:'geojson',resultRecordCount:'2000'});
- const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),30000);
- try{
-  const res=await fetch(base+'?'+params.toString(),{signal:ctl.signal,mode:'cors',cache:'no-store'});
-  if(!res.ok)throw new Error('PEI road GIS HTTP '+res.status);
-  const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid PEI road GIS GeoJSON');
-  let roads=0;
-  data.features.forEach(feature=>{
-   const geom=feature.geometry;if(!geom)return;
-   const lines=geom.type==='LineString'?[geom.coordinates]:geom.type==='MultiLineString'?geom.coordinates:[];
-   lines.forEach(line=>{
-    const pts=line.map(c=>peiXY(c[1],c[0]));if(pts.length<2)return;
-    const props=feature.properties||{},kind=String(props.ROAD_CLASS||props.ROAD_TYPE||props.CLASS||props.NAME||'').toLowerCase();
-    const w=/arterial|primary|highway|collector/.test(kind)?7.5:/local|residential/.test(kind)?4.8:3.8;
-    peiRoad(pts,w,/arterial|primary|highway/.test(kind)?peiMaterials.roadMain:peiMaterials.road);roads++;
-   });
+ // Roads are built in GitHub Actions from an OSM regional extract and served locally.
+ // This removes all browser-side Overpass/CORS/rate-limit dependencies.
+ const res=await fetch('./assets/pei/sturgeon-roads.geojson',{cache:'force-cache'});
+ if(!res.ok)throw new Error('Cached PEI road bundle unavailable ('+res.status+')');
+ const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid cached road GeoJSON');
+ let roads=0;
+ data.features.forEach(feature=>{
+  const g=feature.geometry;if(!g)return;
+  const lines=g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:[];
+  lines.forEach(line=>{
+   const pts=line.map(c=>peiXY(c[1],c[0]));if(pts.length<2)return;
+   const t=feature.properties||{},kind=String(t.highway||'').toLowerCase();
+   const widths={motorway:10,trunk:9,primary:8,secondary:7,tertiary:6,residential:4.8,unclassified:4.2,service:3.4,track:2.8,path:1.5,footway:1.3};
+   peiRoad(pts,widths[kind]||3.2,(kind==='primary'||kind==='secondary'||kind==='trunk')?peiMaterials.roadMain:peiMaterials.road);roads++;
   });
-  if(!roads)throw new Error('PEI road GIS returned no usable lines');return roads;
- }finally{clearTimeout(timer)}
+ });
+ if(!roads)throw new Error('Cached PEI roads bundle contains no usable lines');return roads;
 }
-// Government of PEI's current 2026 surveyed building polygons; no OSM dependency. GIS query geometry is being validated against the province's native coordinate grid.
-async function peiLoadOfficialBuildings(){
- const base='https://gis.princeedwardisland.ca/server/rest/services/GeoLincData/Building_Footprints_2026/MapServer/3/query';
- const params=new URLSearchParams({where:'1=1',geometry:[PEI_BOUNDS.west,PEI_BOUNDS.south,PEI_BOUNDS.east,PEI_BOUNDS.north].join(','),geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:'OBJECTID_1,Shape_Area,Shape_Length',returnGeometry:'true',outSR:'4326',f:'geojson',resultRecordCount:'2000'});
- const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),35000);
- try{
-  const res=await fetch(base+'?'+params.toString(),{signal:ctl.signal,mode:'cors',cache:'no-store'});
-  if(!res.ok)throw new Error('PEI building GIS HTTP '+res.status);
-  const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid PEI building footprint GeoJSON');
-  let count=0;
-  data.features.forEach(feature=>{
-   const g=feature.geometry;if(!g)return;
-   const polygons=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
-   polygons.forEach(poly=>{
-    if(!poly||!poly[0]||poly[0].length<4)return;
-    const ring=poly[0].map(c=>peiXY(c[1],c[0]));
-    peiBuildBuilding(ring,{});
-    count++;
-   });
+async function peiLoadNature(){
+ const res=await fetch('./assets/pei/sturgeon-nature.geojson',{cache:'force-cache'});
+ if(!res.ok)throw new Error('Cached PEI land-cover bundle unavailable ('+res.status+')');
+ const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid cached land-cover GeoJSON');
+ let count=0;
+ data.features.forEach(feature=>{
+  const g=feature.geometry,kind=(feature.properties||{}).kind;if(!g)return;
+  if(g.type==='LineString'){
+   const pts=g.coordinates.map(c=>peiXY(c[1],c[0]));if(pts.length>1){peiRoad(pts,kind==='waterway'?2.4:1.8,peiMaterials.water);count++}return;
+  }
+  const polygons=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
+  polygons.forEach(poly=>{
+   if(!poly||!poly[0]||poly[0].length<4)return;
+   const pts=poly[0].map(c=>peiXY(c[1],c[0])),sh=new THREE.Shape();
+   sh.moveTo(pts[0].x,-pts[0].z);pts.slice(1).forEach(p=>sh.lineTo(p.x,-p.z));
+   const mesh=new THREE.Mesh(new THREE.ShapeGeometry(sh),new THREE.MeshStandardMaterial({color:kind==='water'?0x477f91:0x24452c,roughness:1,transparent:kind!=='water',opacity:kind==='water'?1:.28,side:THREE.DoubleSide}));
+   mesh.rotation.x=-Math.PI/2;mesh.position.y=kind==='water'?.16:.035;PEI_SCENE.add(mesh);count++;
   });
-  if(!count)throw new Error('PEI building service returned zero footprints for Sturgeon bounds');
-  return count;
- }finally{clearTimeout(timer)}
+ });
+ return count;
+}
+async function peiLoadOfficialBuildings(){
+ // Microsoft Canadian Building Footprints (ODbL), filtered to the Sturgeon play area
+ // and committed as a small static GeoJSON asset by build-pei-world-data.yml.
+ const res=await fetch('./assets/pei/sturgeon-buildings.geojson',{cache:'force-cache'});
+ if(!res.ok)throw new Error('Cached PEI building bundle unavailable ('+res.status+')');
+ const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid cached building footprint GeoJSON');
+ let count=0;
+ data.features.forEach(feature=>{
+  const g=feature.geometry;if(!g)return;
+  const polygons=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
+  polygons.forEach(poly=>{
+   if(!poly||!poly[0]||poly[0].length<4)return;
+   const ring=poly[0].map(c=>peiXY(c[1],c[0]));
+   peiBuildBuilding(ring,{});count++;
+  });
+ });
+ if(!count)throw new Error('Cached PEI building bundle contains no usable footprints');return count;
 }
 async function peiLoadOSM(){const {south,west,north,east}=PEI_BOUNDS;const q=`[out:json][timeout:30];(way[highway](${south},${west},${north},${east});way[building](${south},${west},${north},${east});way[waterway](${south},${west},${north},${east});way[natural=water](${south},${west},${north},${east}););(._;>;);out body;`;
 // The North American dresel mirror explicitly supports browser CORS; keep the public
@@ -466,7 +478,7 @@ function peiAddTrees(){
 }
 function peiRoadNear(x,z,r){for(const o of peiSceneRoadSamples){if(Math.hypot(x-o.x,z-o.z)<r)return true}for(const o of peiSceneBuildingSamples){if(Math.hypot(x-o.x,z-o.z)<r+12)return true}return false}
 const peiSceneRoadSamples=[],peiSceneBuildingSamples=[];
-let peiGroundBuilt=false,peiTreesBuilt=false,peiRoadsLoaded=false,peiBuildingsLoaded=false;
+let peiGroundBuilt=false,peiTreesBuilt=false,peiRoadsLoaded=false,peiBuildingsLoaded=false,peiNatureLoaded=false;
 async function startPEIWorld(){
  if(peiLoading)return;
  peiMode=true;cfg.practice=false;started=true;playing=false;joy.x=joy.y=0;firing=false;snd.on=0;sndHide();bbs.forEach(b=>b.kill());player.ads=false;
@@ -485,7 +497,8 @@ async function startPEIWorld(){
   peiDataStatus=(demOK?'TERRAIN DATA':'TERRAIN FALLBACK')+' • '+(orthoOK?'2020 PEI AERIAL':'AERIAL TILE FALLBACK');
  })());
  if(!peiRoadsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialRoads();peiRoadsLoaded=true;peiDataStatus+=' • '+n+' OFFICIAL ROAD SEGMENTS'})());
- if(!peiBuildingsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialBuildings();peiBuildingsLoaded=true;peiDataStatus+=' • '+n+' OFFICIAL BUILDINGS'})());
+ if(!peiBuildingsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialBuildings();peiBuildingsLoaded=true;peiDataStatus+=' • '+n+' BUILDING FOOTPRINTS'})());
+ if(!peiNatureLoaded)jobs.push((async()=>{const n=await peiLoadNature();peiNatureLoaded=true;peiDataStatus+=' • '+n+' LAND-COVER FEATURES'})());
  const results=await Promise.allSettled(jobs);
  const failures=results.filter(r=>r.status==='rejected').map(r=>String(r.reason&&r.reason.message||r.reason));
  if(failures.length)console.warn('PEI world data tasks failed:',failures);
@@ -496,8 +509,9 @@ async function startPEIWorld(){
  const statusParts=[];
  statusParts.push(peiOrthoTexture?'PEI 2020 AERIAL':'AERIAL FALLBACK');
  statusParts.push(peiDemRaster?'ELEVATION':'TERRAIN FALLBACK');
- statusParts.push(peiRoadsLoaded?'OFFICIAL ROADS':'ROADS UNAVAILABLE');
- statusParts.push(peiBuildingsLoaded?'OFFICIAL BUILDING FOOTPRINTS':'BUILDINGS UNAVAILABLE');
+ statusParts.push(peiRoadsLoaded?'CACHED ROAD NETWORK':'ROADS BUNDLE MISSING');
+ statusParts.push(peiBuildingsLoaded?'REAL BUILDING FOOTPRINTS':'BUILDINGS BUNDLE MISSING');
+ statusParts.push(peiNatureLoaded?'WATER + FOREST DATA':'LAND-COVER BUNDLE MISSING');
  peiDataStatus=statusParts.join(' • ');
  if(failures.length)feed('MAP DATA WARNING: '+failures[0].slice(0,90));
  else feed('PEI MAP DATA LOADED: '+(peiSceneBuildingSamples.length)+' BUILDINGS');
