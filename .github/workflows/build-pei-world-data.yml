@@ -107,5 +107,7 @@ jobs:
             echo "World data bundle already current"
           else
             git commit -m "Add cached PEI building, road and land-cover data"
+            git fetch origin "${GITHUB_HEAD_REF}"
+            git rebase "origin/${GITHUB_HEAD_REF}"
             git push origin "HEAD:${GITHUB_HEAD_REF}"
           fi
