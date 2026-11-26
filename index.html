@@ -328,7 +328,7 @@ function peiAddGround(){
  const g=new THREE.PlaneGeometry(peiWorldWidth,peiWorldHeight,180,120);g.rotateX(-Math.PI/2);
  const a=g.attributes.position;for(let i=0;i<a.count;i++)a.setY(i,peiHeightAt(a.getX(i),a.getZ(i)));
  g.computeVertexNormals();
- const mat=new THREE.MeshStandardMaterial({color:peiOrthoTexture?0xffffff:0x53684a,map:peiOrthoTexture||null,roughness:1});
+ const mat=peiOrthoTexture?new THREE.MeshBasicMaterial({map:peiOrthoTexture,color:0xffffff,toneMapped:false}):new THREE.MeshStandardMaterial({color:0x465b3e,roughness:1});
  peiGroundMesh=new THREE.Mesh(g,mat);peiGroundMesh.receiveShadow=true;PEI_SCENE.add(peiGroundMesh);
 }
 function peiRoad(points,width,mat){if(points.length<2)return;for(let i=0;i<points.length;i+=Math.max(1,Math.floor(points.length/8)))peiSceneRoadSamples.push(points[i]);const verts=[],idx=[];for(let i=0;i<points.length;i++){const p=points[i],a=points[Math.max(0,i-1)],b=points[Math.min(points.length-1,i+1)],dx=b.x-a.x,dz=b.z-a.z,n=Math.hypot(dx,dz)||1,ox=-dz/n*width*.5,oz=dx/n*width*.5,y=peiHeightAt(p.x,p.z)+.045;verts.push(p.x+ox,y,p.z+oz,p.x-ox,y,p.z-oz);if(i<points.length-1){const k=i*2;idx.push(k,k+2,k+1,k+1,k+2,k+3)}}const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geo.setIndex(idx);geo.computeVertexNormals();const mesh=new THREE.Mesh(geo,mat);mesh.receiveShadow=true;PEI_SCENE.add(mesh)}
@@ -375,14 +375,10 @@ function peiBuildBuilding(points,tags){
  if(edge&&longest>2.4){const a=edge[0],b=edge[1],door=new THREE.Mesh(new THREE.BoxGeometry(.92,2.05,.1),new THREE.MeshStandardMaterial({color:0x493b2d,roughness:.9}));door.position.set((a.x+b.x)/2,base+1.025,(a.z+b.z)/2);door.rotation.y=-Math.atan2(b.z-a.z,b.x-a.x);PEI_SCENE.add(door)}
 }
 function peiLabel(text,x,z){const c=document.createElement('canvas');c.width=512;c.height=96;const ctx=c.getContext('2d');ctx.fillStyle='rgba(8,16,12,.78)';ctx.fillRect(0,0,512,96);ctx.strokeStyle='#75bb7d';ctx.lineWidth=4;ctx.strokeRect(2,2,508,92);ctx.fillStyle='#f1f5ee';ctx.font='bold 34px monospace';ctx.textAlign='center';ctx.fillText(text,256,59);const tex=new THREE.CanvasTexture(c),sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));sp.position.set(x,18,z);sp.scale.set(62,12,1);PEI_SCENE.add(sp)}
-function peiFallback(){
- // No invented roads or buildings: keep the actual terrain and report missing OSM data.
- peiDataStatus='OSM DATA UNAVAILABLE';
-}
 async function peiLoadOfficialRoads(){
  // Roads are built in GitHub Actions from an OSM regional extract and served locally.
  // This removes all browser-side Overpass/CORS/rate-limit dependencies.
- const res=await fetch('./assets/pei/sturgeon-roads.geojson',{cache:'force-cache'});
+ const res=await fetch('./assets/pei/sturgeon-roads.geojson?v=20261126b',{cache:'reload'});
  if(!res.ok)throw new Error('Cached PEI road bundle unavailable ('+res.status+')');
  const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid cached road GeoJSON');
  let roads=0;
@@ -399,7 +395,7 @@ async function peiLoadOfficialRoads(){
  if(!roads)throw new Error('Cached PEI roads bundle contains no usable lines');return roads;
 }
 async function peiLoadNature(){
- const res=await fetch('./assets/pei/sturgeon-nature.geojson',{cache:'force-cache'});
+ const res=await fetch('./assets/pei/sturgeon-nature.geojson?v=20261126b',{cache:'reload'});
  if(!res.ok)throw new Error('Cached PEI land-cover bundle unavailable ('+res.status+')');
  const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid cached land-cover GeoJSON');
  let count=0;
@@ -422,7 +418,7 @@ async function peiLoadNature(){
 async function peiLoadOfficialBuildings(){
  // Microsoft Canadian Building Footprints (ODbL), filtered to the Sturgeon play area
  // and committed as a small static GeoJSON asset by build-pei-world-data.yml.
- const res=await fetch('./assets/pei/sturgeon-buildings.geojson',{cache:'force-cache'});
+ const res=await fetch('./assets/pei/sturgeon-buildings.geojson?v=20261126b',{cache:'reload'});
  if(!res.ok)throw new Error('Cached PEI building bundle unavailable ('+res.status+')');
  const data=await res.json();if(!data||!Array.isArray(data.features))throw new Error('Invalid cached building footprint GeoJSON');
  let count=0;
@@ -437,13 +433,6 @@ async function peiLoadOfficialBuildings(){
  });
  if(!count)throw new Error('Cached PEI building bundle contains no usable footprints');return count;
 }
-async function peiLoadOSM(){const {south,west,north,east}=PEI_BOUNDS;const q=`[out:json][timeout:30];(way[highway](${south},${west},${north},${east});way[building](${south},${west},${north},${east});way[waterway](${south},${west},${north},${east});way[natural=water](${south},${west},${north},${east}););(._;>;);out body;`;
-// The North American dresel mirror explicitly supports browser CORS; keep the public
-// global Overpass instances as fallbacks in case that mirror is temporarily unavailable.
-const urls=['https://ovp.dresel.systems/api-na/interpreter','https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];let data=null,lastError='unknown error';
-for(const base of urls){const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),30000);try{const res=await fetch(base+'?data='+encodeURIComponent(q),{method:'GET',headers:{'Accept':'application/json'},signal:ctl.signal,mode:'cors',cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status);const candidate=await res.json();if(!candidate||!Array.isArray(candidate.elements))throw new Error('Invalid OSM response');data=candidate;break}catch(e){lastError=e&&e.name==='AbortError'?'request timed out':(e&&e.message)||'network/CORS error'}finally{clearTimeout(timer)}}
-if(!data)throw new Error('All OSM mirrors failed: '+lastError);
-const nodes=new Map();data.elements.forEach(e=>{if(e.type==='node')nodes.set(e.id,peiXY(e.lat,e.lon))});let roads=0,buildings=0,waterways=0;data.elements.forEach(e=>{if(e.type!=='way'||!e.nodes)return;const pts=e.nodes.map(id=>nodes.get(id)).filter(Boolean);if(pts.length<2)return;const t=e.tags||{};if(t.highway){const widths={motorway:11,trunk:9,primary:8,secondary:7,tertiary:6,residential:4.6,unclassified:4.2,service:3.2,track:2.5,path:1.4,footway:1.3};const w=widths[t.highway]||3.2;peiRoad(pts,w,(t.highway==='primary'||t.highway==='secondary'||t.highway==='trunk')?peiMaterials.roadMain:peiMaterials.road);roads++}if(t.building){peiBuildBuilding(pts,t);buildings++}if(t.waterway){peiRoad(pts,t.waterway==='river'?7:2.5,peiMaterials.water);waterways++}if(t.natural==='water'&&pts.length>3){const closed=pts.slice();if(Math.hypot(closed[0].x-closed.at(-1).x,closed[0].z-closed.at(-1).z)>.1)closed.push(closed[0]);const sh=new THREE.Shape();sh.moveTo(closed[0].x,-closed[0].z);closed.slice(1).forEach(p=>sh.lineTo(p.x,-p.z));const g=new THREE.ShapeGeometry(sh);g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,peiMaterials.water);m.position.y=.2;PEI_SCENE.add(m);waterways++}});if(roads<2&&buildings<2)throw new Error('OSM returned no usable features');peiDataStatus=`OSM LIVE • ${roads} ROADS • ${buildings} BUILDINGS`;}
 function peiAddTrees(){
  const total=1450,dummy=new THREE.Object3D();
  const trunkGeo=new THREE.CylinderGeometry(.12,.32,6.8,12),trunkMat=new THREE.MeshStandardMaterial({color:0x55412e,roughness:1});
@@ -513,6 +502,7 @@ async function startPEIWorld(){
  statusParts.push(peiRoadsLoaded?'CACHED ROAD NETWORK':'ROADS BUNDLE MISSING');
  statusParts.push(peiBuildingsLoaded?'REAL BUILDING FOOTPRINTS':'BUILDINGS BUNDLE MISSING');
  statusParts.push(peiNatureLoaded?'WATER / FOREST DATA':'LAND-COVER BUNDLE MISSING');
+ statusParts.push('WORLD BUILD 26.11.26');
  peiDataStatus=statusParts.join(' • ');
  if(failures.length)feed('MAP DATA WARNING: '+failures[0].slice(0,90));
  else feed('PEI MAP DATA LOADED: '+(peiSceneBuildingSamples.length)+' BUILDINGS');
