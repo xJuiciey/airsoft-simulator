@@ -491,52 +491,65 @@ function peiAddTrees(){
 function peiRoadNear(x,z,r){for(const o of peiSceneRoadSamples){if(Math.hypot(x-o.x,z-o.z)<r)return true}for(const o of peiSceneBuildingSamples){if(Math.hypot(x-o.x,z-o.z)<r+12)return true}return false}
 const peiSceneRoadSamples=[],peiSceneBuildingSamples=[];
 let peiGroundBuilt=false,peiTreesBuilt=false,peiRoadsLoaded=false,peiBuildingsLoaded=false,peiNatureLoaded=false;
-async function startPEIWorld(){
+function peiBuildLocalWorld(){
+ // Entire playable region is generated locally. No map, terrain, imagery, or feature downloads.
+ if(peiGroundBuilt)return;
+ peiGroundBuilt=true;
+ peiAddGround();
+ const road=peiMaterials.road,main=peiMaterials.roadMain;
+ const line=(coords,width,mat=road)=>peiRoad(coords.map(([x,z])=>({x,z})),width,mat);
+ // Main rural highway, gentle bends, plus a small local road network.
+ line([[-90,900],[-65,650],[-48,420],[-25,180],[0,-40],[24,-260],[40,-520],[55,-900]],9,main);
+ line([[-850,470],[-600,430],[-380,385],[-180,330],[-48,250]],6,road);
+ line([[24,-260],[210,-300],[410,-360],[650,-440],[900,-500]],6,road);
+ line([[-700,-500],[-470,-440],[-250,-360],[-90,-260],[24,-260]],5,road);
+ line([[40,520],[240,560],[450,620],[700,710]],5,road);
+ line([[-25,180],[-220,80],[-420,-40],[-650,-170]],4,road);
+ // Short driveways and side lanes make the settlement feel like a rural PEI road.
+ for(let i=0;i<18;i++){
+  const z=330-i*38,side=i%2?1:-1,x=(i%2?24:-25)+Math.sin(i*.7)*9;
+  const endX=x+side*(25+(i%4)*8),endZ=z-((i%3)-1)*12;
+  line([[x,z],[x+side*9,z-5],[endX,endZ]],2.4,road);
+ }
+ // A compact village/rural mix around the central road, with varied house, barn and shed footprints.
+ let seed=76123;const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
+ const sites=[];
+ for(let i=0;i<68;i++){
+  const side=i%2?1:-1, row=Math.floor(i/2),z=270-row*24+(rnd()-.5)*12;
+  const x=side*(23+14+rnd()*42);
+  if(Math.hypot(x,z+35)<28)continue;
+  sites.push({x,z,kind:rnd()});
+ }
+ // Add a few larger farmsteads farther out from the settlement.
+ for(let i=0;i<22;i++)sites.push({x:(rnd()-.5)*1250,z:(rnd()-.5)*1450,kind:rnd()});
+ sites.forEach((p,i)=>{
+  const w=p.kind<.18?15+rnd()*12:p.kind<.42?3.5+rnd()*3:7+rnd()*5;
+  const d=p.kind<.18?18+rnd()*12:p.kind<.42?5+rnd()*4:8+rnd()*8;
+  const x=p.x,z=p.z;
+  peiBuildBuilding([{x:x-w/2,z:z-d/2},{x:x+w/2,z:z-d/2},{x:x+w/2,z:z+d/2},{x:x-w/2,z:z+d/2},{x:x-w/2,z:z-d/2}],{});
+ });
+ // Farm ponds and drainage wetlands.
+ const pond=new THREE.Mesh(new THREE.CircleGeometry(52,48),peiMaterials.water);
+ pond.rotation.x=-Math.PI/2;pond.position.set(330,peiHeightAt(330,260)+.08,260);PEI_SCENE.add(pond);
+ // Clustered mixed woodland generated locally; no external land-cover service.
+ peiAddTrees();peiTreesBuilt=true;
+ peiLabel('STURGEON • KINGS COUNTY',0,-28);
+ peiRoadsLoaded=true;peiBuildingsLoaded=true;peiNatureLoaded=true;
+}
+function startPEIWorld(){
  if(peiLoading)return;
  peiMode=true;cfg.practice=false;started=true;playing=true;joy.x=joy.y=0;firing=false;snd.on=0;sndHide();bbs.forEach(b=>b.kill());player.ads=false;
  bots.forEach(b=>{b.on=false;b.alive=false;b.g.position.set(0,-500,0)});
  if(activeScene!==PEI_SCENE){S.remove(cam);PEI_SCENE.add(cam);activeScene=PEI_SCENE}
  peiLoading=true;
- // Elevation and imagery must finish before any road/building geometry samples the ground.
- if(!peiGroundBuilt){
-  peiDataStatus='LOADING PEI TERRAIN DATA';
-  const terrainResults=await Promise.allSettled([peiLoadElevation()]);
-  const demOK=terrainResults[0].status==='fulfilled';
-  if(!demOK)console.warn('PEI elevation tiles unavailable',terrainResults[0].reason);
-  peiAddGround();peiGroundBuilt=true;
-  peiLabel('STURGEON • KINGS COUNTY',0,-28);
-  peiDataStatus=(demOK?'TERRAIN DATA':'TERRAIN FALLBACK')+' • LOCAL FIELD / GRASS TEXTURE';
- }
- const jobs=[];
- if(!peiRoadsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialRoads();peiRoadsLoaded=true;peiDataStatus+=' • '+n+' CACHED ROAD SEGMENTS'})());
- if(!peiBuildingsLoaded)jobs.push((async()=>{const n=await peiLoadOfficialBuildings();peiBuildingsLoaded=true;peiDataStatus+=' • '+n+' BUILDING FOOTPRINTS'})());
- if(!peiNatureLoaded)jobs.push((async()=>{const n=await peiLoadNature();peiNatureLoaded=true;peiDataStatus+=' • '+n+' WATER / FOREST FEATURES'})());
- const results=await Promise.allSettled(jobs);
- const failures=results.filter(r=>r.status==='rejected').map(r=>String(r.reason&&r.reason.message||r.reason));
- if(failures.length)console.warn('PEI world data tasks failed:',failures);
- // Place woodland only after the actual road and building positions are in the scene.
- if(!peiBuildingsLoaded&&peiSceneBuildingSamples.length===0){
-  // Three known mapped footprints near the spawn, embedded as a local safety net.
-  const starter=[[-3.97,-5.34,8.72,7.79],[.54,-79.15,7.56,8.91],[46.89,-67.85,9.65,10.13]];
-  starter.forEach(([x,z,w,d])=>peiBuildBuilding([{x:x-w/2,z:z-d/2},{x:x+w/2,z:z-d/2},{x:x+w/2,z:z+d/2},{x:x-w/2,z:z+d/2},{x:x-w/2,z:z-d/2}],{}));
- }
- if(!peiTreesBuilt){peiAddTrees();peiTreesBuilt=true}
- peiBuilt=peiGroundBuilt||peiRoadsLoaded||peiBuildingsLoaded||peiTreesBuilt;
+ try{peiBuildLocalWorld();peiBuilt=true;peiDataStatus='LOCAL PROCEDURAL PEI • '+peiSceneBuildingSamples.length+' BUILDINGS • ROADS • FIELDS • FOREST';}
+ catch(e){console.error('Local PEI world build failed',e);feed('WORLD BUILD ERROR: '+String(e.message||e).slice(0,100));}
  peiLoading=false;
- const statusParts=[];
- statusParts.push('LOCAL PROCEDURAL GROUND');
- statusParts.push(peiDemRaster?'ELEVATION':'TERRAIN FALLBACK');
- statusParts.push(peiRoadsLoaded?'CACHED ROAD NETWORK':'ROADS BUNDLE MISSING');
- statusParts.push(peiSceneBuildingSamples.length+' 3D HOUSES');
- statusParts.push(peiNatureLoaded?'WATER / FOREST DATA':'LAND-COVER BUNDLE MISSING');
- statusParts.push('WORLD BUILD 26.11.26');
- peiDataStatus=statusParts.join(' • ');
- if(failures.length)feed('MAP DATA WARNING: '+failures[0].slice(0,90));
- else feed('PEI MAP DATA LOADED: '+(peiSceneBuildingSamples.length)+' BUILDINGS');
  player.pos.set(0,peiHeightAt(0,-35)+1.65,-35);player.vy=0;player.yaw=0;player.pitch=0;player.lean=0;cam.far=1800;cam.position.copy(player.pos);cam.rotation.set(0,0,0);cam.updateProjectionMatrix();player.cl=null;player.alive=true;stam=100;activeHit=peiHit;
  cam.fov=75;cam.updateProjectionMatrix();$('ti').textContent='STURGEON, PEI // OPEN WORLD';$('ob').textContent=peiDataStatus;$('wn').textContent='PEI REGION';$('fm').textContent='EXPLORATION';$('am').textContent='—';$('rs').textContent='';
  show(true);hud();
 }
+
 let stam=100,cw=0,reloading=false,lastShot=0,playing=false,started=false,firing=false,bob=0,lastStep=0,score={k:0,d:0};
 function resetAmmo(){W.forEach(w=>{w.ammo=w.mag;w.res=w.mag*(w===W[0]?4:4);w.mi=0})}resetAmmo();
 function hud(){const w=W[cw];$('am').textContent=w.ammo;$('rs').textContent='/ '+w.res;$('wn').textContent=w.n;$('fm').textContent=w.modes[w.mi]+(reloading?' - RELOADING':'')}
