@@ -414,13 +414,24 @@ function peiBuildBuilding(points,tags){
  const group=new THREE.Group();group.position.set(cx,base,cz);
  const palette=[0xb9b09e,0x9f9a8c,0xc5b9a5,0x858c83,0xd0c5b1,0x927d6c,0xb4a08b];
  const wall=new THREE.MeshStandardMaterial({color:palette[Math.floor(Math.random()*palette.length)],roughness:.92});
- const body=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),wall);body.position.y=h*.5;body.castShadow=true;body.receiveShadow=true;group.add(body);peiHit.push(body);
+ // Build four separate wall runs instead of a solid box, leaving a real opening in the front wall.
+ const doorWidth=Math.min(1.02,Math.max(.78,w*.22)),doorHeight=Math.min(2.15,h*.66);
+ const doorX=Math.min(w*.22,Math.max(-w*.22,0));
+ const wallT=.22,frontZ=-d*.5;
+ function addWall(width,height,depth,x,y,z){if(width<.12||height<.12)return;const m=new THREE.Mesh(new THREE.BoxGeometry(width,height,depth),wall);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;group.add(m);peiHit.push(m)}
+ addWall(w,h,wallT,0,h*.5,d*.5);
+ addWall(wallT,h,d, -w*.5,h*.5,0);
+ addWall(wallT,h,d, w*.5,h*.5,0);
+ const frontSide=(w-doorWidth)*.5;
+ addWall(frontSide,h,wallT,(-w-doorWidth)*.25,h*.5,frontZ);
+ addWall(frontSide,h,wallT,(w+doorWidth)*.25,h*.5,frontZ);
+ addWall(doorWidth,h-doorHeight,wallT,doorX,(h+doorHeight)*.5,frontZ);
  const roofMat=new THREE.MeshStandardMaterial({color:[0x403a35,0x51483e,0x62594d,0x454b4a,0x6a6257][Math.floor(Math.random()*5)],roughness:.96});
  // Proper pitched roof: two solid sloping panels meet cleanly at a ridge.
  // The panels overlap slightly at the peak and extend beyond the wall line as eaves.
  const ridgeAlongX=w>=d, roofRise=2.15, halfSpan=(ridgeAlongX?d:w)*.59;
  const slopeLen=Math.sqrt(halfSpan*halfSpan+roofRise*roofRise);
- const roofAngle=Math.atan2(roofRise,halfSpan), roofMidY=h+roofRise*.5;
+ const roofAngle=Math.atan2(halfSpan,roofRise), roofMidY=h+roofRise*.5;
  const roofPanelGeo=new THREE.BoxGeometry((ridgeAlongX?w:d)*1.13,slopeLen,.22);
  const roofPanels=[];
  for(const side of [-1,1]){
@@ -443,15 +454,15 @@ function peiBuildBuilding(points,tags){
  }
  const glass=new THREE.MeshStandardMaterial({color:0x263f4b,roughness:.24,metalness:.08,emissive:0x101c22});
  const trim=new THREE.MeshStandardMaterial({color:0xe4ded0,roughness:.82});
- const frontZ=-d*.5-.045,windowY=Math.min(h*.58,2.0);
+ const windowY=Math.min(h*.58,2.0);
  const windowCount=Math.max(1,Math.min(4,Math.floor(w/3.2)));
  for(let i=0;i<windowCount;i++){
   const x=-w*.5+(i+1)*w/(windowCount+1);
+  if(Math.abs(x-doorX)<doorWidth*.72)continue;
   const frame=new THREE.Mesh(new THREE.BoxGeometry(.92,.94,.09),trim);frame.position.set(x,windowY,frontZ);group.add(frame);
   const pane=new THREE.Mesh(new THREE.BoxGeometry(.72,.72,.1),glass);pane.position.set(x,windowY,frontZ-.012);group.add(pane);
  }
- const doorWidth=Math.min(1.02,Math.max(.78,w*.22)),doorHeight=Math.min(2.15,h*.66);
- const doorX=Math.min(w*.22,Math.max(-w*.22,0)),doorPivot=new THREE.Group();
+ const doorPivot=new THREE.Group();
  doorPivot.position.set(doorX-doorWidth*.5,.06,frontZ-.13);group.add(doorPivot);
  const doorMat=new THREE.MeshStandardMaterial({color:0x65432f,roughness:.88});
  const door=new THREE.Mesh(new THREE.BoxGeometry(doorWidth,doorHeight,.16),doorMat);
