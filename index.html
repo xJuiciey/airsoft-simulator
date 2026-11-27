@@ -357,8 +357,18 @@ function peiAddGround(){
  // Always start with a bundled-in-code, locally generated terrain texture. Aerial imagery can upgrade it,
  // but a remote tile/CORS failure can never leave the player standing on a white plane.
  const fallback=peiMakeGroundTexture();
- const mat=new THREE.MeshBasicMaterial({map:fallback,color:0xffffff,toneMapped:false});
+ // Keep a guaranteed green base tint even if a mobile browser fails to upload the canvas texture.
+ // The texture adds field variation; the material tint prevents a white/untextured ground failure.
+ const mat=new THREE.MeshBasicMaterial({map:fallback,color:0x829b68,toneMapped:false});
  peiGroundMesh=new THREE.Mesh(g,mat);peiGroundMesh.receiveShadow=true;PEI_SCENE.add(peiGroundMesh);
+ // Large, flat pasture/crop parcels provide readable ground colour from a distance on mobile.
+ const fieldMats=[0x71884e,0x87945b,0x657c48,0x9a945e,0x536f43].map(c=>new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.58,depthWrite:false}));
+ let fs=27419;const fr=()=>{fs=(fs*1664525+1013904223)>>>0;return fs/4294967296};
+ for(let i=0;i<46;i++){
+  const x=(fr()-.5)*peiWorldWidth*.92,z=(fr()-.5)*peiWorldHeight*.92,rx=35+fr()*105,rz=30+fr()*90;
+  const patch=new THREE.Mesh(new THREE.CircleGeometry(1,9),fieldMats[i%fieldMats.length]);
+  patch.rotation.x=-Math.PI/2;patch.scale.set(rx,rz,1);patch.position.set(x,peiHeightAt(x,z)+.035,z);PEI_SCENE.add(patch);
+ }
 }
 
 function peiRoad(points,width,mat){if(points.length<2)return;for(let i=0;i<points.length;i+=Math.max(1,Math.floor(points.length/8)))peiSceneRoadSamples.push(points[i]);const verts=[],idx=[];for(let i=0;i<points.length;i++){const p=points[i],a=points[Math.max(0,i-1)],b=points[Math.min(points.length-1,i+1)],dx=b.x-a.x,dz=b.z-a.z,n=Math.hypot(dx,dz)||1,ox=-dz/n*width*.5,oz=dx/n*width*.5,y=peiHeightAt(p.x,p.z)+.045;verts.push(p.x+ox,y,p.z+oz,p.x-ox,y,p.z-oz);if(i<points.length-1){const k=i*2;idx.push(k,k+2,k+1,k+1,k+2,k+3)}}const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geo.setIndex(idx);geo.computeVertexNormals();const mesh=new THREE.Mesh(geo,mat);mesh.receiveShadow=true;PEI_SCENE.add(mesh)}
@@ -375,9 +385,25 @@ function peiBuildBuilding(points,tags){
  const wall=new THREE.MeshStandardMaterial({color:palette[Math.floor(Math.random()*palette.length)],roughness:.92});
  const body=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),wall);body.position.y=h*.5;body.castShadow=true;body.receiveShadow=true;group.add(body);peiHit.push(body);
  const roofMat=new THREE.MeshStandardMaterial({color:[0x403a35,0x51483e,0x62594d,0x454b4a,0x6a6257][Math.floor(Math.random()*5)],roughness:.96});
- const roofBase=new THREE.Mesh(new THREE.BoxGeometry(w*1.07,.22,d*1.07),roofMat);roofBase.position.y=h+.11;roofBase.castShadow=true;group.add(roofBase);
- // Simple four-sided pitched roof: cheap geometry, visible silhouette, no external models.
- const roofPeak=new THREE.Mesh(new THREE.ConeGeometry(1,1.05,4,1),roofMat);roofPeak.scale.set(w*.62,1,d*.62);roofPeak.rotation.y=Math.PI/4;roofPeak.position.y=h+.62;roofPeak.castShadow=true;group.add(roofPeak);
+ // Distinct low-poly gable roof: two sloped roof planes and triangular end caps.
+ const roofBase=new THREE.Mesh(new THREE.BoxGeometry(w*1.08,.18,d*1.08),roofMat);roofBase.position.y=h+.08;roofBase.castShadow=true;group.add(roofBase);
+ const ridgeAlongX=w>=d, halfW=w*.58, halfD=d*.58, ridgeY=h+1.9;
+ const roofShape=new THREE.BufferGeometry();
+ const rv=[],ri=[];
+ if(ridgeAlongX){
+  rv.push(-halfW,h, -halfD, halfW,h,-halfD, 0,ridgeY,-halfD,
+          -halfW,h, halfD, 0,ridgeY,halfD, halfW,h,halfD,
+          -halfW,h,-halfD, -halfW,h,halfD, 0,ridgeY,halfD,
+          halfW,h,-halfD, 0,ridgeY,halfD, halfW,h,halfD);
+ }else{
+  rv.push(-halfW,h,-halfD, -halfW,ridgeY,0, -halfW,h,halfD,
+          halfW,h,-halfD, halfW,h,halfD, halfW,ridgeY,0,
+          -halfW,h,-halfD, halfW,h,-halfD, halfW,ridgeY,0,
+          -halfW,h,halfD, halfW,ridgeY,0, halfW,h,halfD);
+ }
+ for(let q=0;q<rv.length/3;q+=3)ri.push(q,q+1,q+2);
+ roofShape.setAttribute('position',new THREE.Float32BufferAttribute(rv,3));roofShape.setIndex(ri);roofShape.computeVertexNormals();
+ const roofMesh=new THREE.Mesh(roofShape,roofMat);roofMesh.castShadow=true;group.add(roofMesh);
  const glass=new THREE.MeshStandardMaterial({color:0x263f4b,roughness:.24,metalness:.08,emissive:0x101c22});
  const trim=new THREE.MeshStandardMaterial({color:0xe4ded0,roughness:.82});
  const frontZ=-d*.5-.045,windowY=Math.min(h*.58,2.0);
