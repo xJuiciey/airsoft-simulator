@@ -520,6 +520,16 @@ function peiBuildLocalWorld(){
   if(Math.hypot(x,z+35)<28)continue;
   sites.push({x,z,kind:rnd()});
  }
+ // Guaranteed starter homes directly in front of the player spawn (camera faces -Z).
+ const starterHomes=[
+  {x:-17,z:-78,w:10,d:12},{x:19,z:-112,w:12,d:10},
+  {x:-31,z:-158,w:14,d:11},{x:34,z:-205,w:11,d:15},
+  {x:5,z:-265,w:16,d:13}
+ ];
+ starterHomes.forEach((p,i)=>{
+  const x=p.x,z=p.z,w=p.w,d=p.d;
+  peiBuildBuilding([{x:x-w/2,z:z-d/2},{x:x+w/2,z:z-d/2},{x:x+w/2,z:z+d/2},{x:x-w/2,z:z+d/2},{x:x-w/2,z:z-d/2}],{});
+ });
  // Add a few larger farmsteads farther out from the settlement.
  for(let i=0;i<22;i++)sites.push({x:(rnd()-.5)*1250,z:(rnd()-.5)*1450,kind:rnd()});
  sites.forEach((p,i)=>{
