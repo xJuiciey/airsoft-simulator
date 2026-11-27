@@ -61,7 +61,7 @@ input[type=range]{width:100%;height:30px;accent-color:var(--g)}
 .inv-item.selected{outline:2px solid #d4a017;background:#66532b}.inv-item small{font-size:8px;color:#d5e2d5}
 .inv-detail{font-size:11px;line-height:1.7;color:#aebdaf;min-height:56px;margin-top:10px}
 .inv-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}.inv-empty{grid-column:1/-1;align-self:center;text-align:center;color:#657566;font-size:10px;letter-spacing:1px;padding:12px}
-#interactPrompt{position:fixed;z-index:17;left:50%;bottom:calc(var(--sb) + 105px);transform:translateX(-50%);display:none;background:rgba(3,8,4,.88);border:1px solid rgba(72,199,90,.7);color:#fff;padding:9px 14px;font:11px 'Lucida Console',monospace;letter-spacing:1px;white-space:nowrap;pointer-events:none}
+#interactPrompt{position:fixed;z-index:17;left:50%;bottom:calc(var(--sb) + 105px);transform:translateX(-50%);display:none;background:rgba(3,8,4,.92);border:1px solid rgba(72,199,90,.8);color:#fff;padding:11px 16px;font:11px 'Lucida Console',monospace;letter-spacing:1px;white-space:nowrap;pointer-events:auto;cursor:pointer;touch-action:manipulation}
 #interactPrompt b{color:#72d77d}
 @media(max-width:620px){.inv-layout{grid-template-columns:1fr}.inv-grid{grid-template-rows:repeat(6,32px)}.inv-grid.small{grid-template-rows:repeat(5,32px)}.inv-title{font-size:15px}}
 
@@ -260,9 +260,40 @@ const lootCases=[];
 buildLootCase('roadside-supply-case',2.8,19,['radio','batteries','multitool']);
 buildLootCase('woodland-equipment-case',-4.2,17,['mag556','snack','tape']);
 const interactionRay=new THREE.Raycaster();
-function findInteractionTarget(){interactionRay.setFromCamera(new THREE.Vector2(0,0),cam);const meshes=[];lootCases.forEach(g=>g.traverse(o=>{if(o.isMesh)meshes.push(o)}));const h=interactionRay.intersectObjects(meshes,false).find(q=>q.distance<2.8);if(!h)return null;const id=h.object.userData.lootCaseId;return id?lootCases.find(g=>g.userData.lootCase.id===id):null}
-function interactWithTarget(){if(inventoryOpen){closeInventory();return}const target=findInteractionTarget();if(!target){feed('NO INTERACTABLE OBJECT IN REACH');return}const c=target.userData.lootCase;c.target=c.target?0:1;if(c.target){feed('SUPPLY CASE OPENED');openInventory(c.id)}else{feed('SUPPLY CASE CLOSED');activeContainerId=null}}
-function updateInteraction(dt){if(!playing||peiMode){$('interactPrompt').style.display='none';return}interactionScan-=dt;if(interactionScan>0)return;interactionScan=.12;interactionTarget=findInteractionTarget();const p=$('interactPrompt');if(interactionTarget&&!inventoryOpen){p.innerHTML='<b>[ E / OPEN ]</b>  SEARCH SUPPLY CASE';p.style.display='block'}else p.style.display='none'}
+let peiInteractionTarget=null;
+function findInteractionTarget(){
+ interactionRay.setFromCamera(new THREE.Vector2(0,0),cam);
+ if(peiMode){
+  const doors=[];peiDoors.forEach(p=>p.traverse(o=>{if(o.isMesh)doors.push(o)}));
+  const hitDoor=interactionRay.intersectObjects(doors,false).find(q=>q.distance<3.2);
+  return hitDoor?(hitDoor.object.userData.peiDoorPivot||hitDoor.object.parent):null;
+ }
+ const meshes=[];lootCases.forEach(g=>g.traverse(o=>{if(o.isMesh)meshes.push(o)}));
+ const h=interactionRay.intersectObjects(meshes,false).find(q=>q.distance<2.8);if(!h)return null;
+ const id=h.object.userData.lootCaseId;return id?lootCases.find(g=>g.userData.lootCase.id===id):null;
+}
+function interactWithTarget(){
+ if(inventoryOpen){closeInventory();return}
+ const target=findInteractionTarget();if(!target){feed('AIM AT A DOOR AND MOVE CLOSER');return}
+ if(peiMode&&target.userData.peiDoor){
+  const d=target.userData.peiDoor;d.target=d.target?0:1;
+  feed(d.target?'DOOR OPENING':'DOOR CLOSING');return;
+ }
+ const c=target.userData.lootCase;if(!c)return;
+ c.target=c.target?0:1;if(c.target){feed('SUPPLY CASE OPENED');openInventory(c.id)}else{feed('SUPPLY CASE CLOSED');activeContainerId=null}
+}
+function updateInteraction(dt){
+ const p=$('interactPrompt');
+ if(!playing){p.style.display='none';return}
+ interactionScan-=dt;if(interactionScan>0)return;interactionScan=.12;
+ interactionTarget=findInteractionTarget();peiInteractionTarget=peiMode?interactionTarget:null;
+ if(interactionTarget&&!inventoryOpen){
+  if(peiMode){const d=interactionTarget.userData.peiDoor;p.innerHTML='<b>[ E / TAP ]</b>  '+(d.target?'CLOSE DOOR':'OPEN DOOR')}
+  else p.innerHTML='<b>[ E / OPEN ]</b>  SEARCH SUPPLY CASE';
+  p.style.display='block';
+ }else p.style.display='none';
+}
+$('interactPrompt').addEventListener('click',()=>{if(playing&&!inventoryOpen)interactWithTarget()});
 addEventListener('keydown',e=>{if(e.repeat)return;if(e.key==='i'||e.key==='I'){if(inventoryOpen)closeInventory();else openInventory();}if(e.key==='e'||e.key==='E'){if(!inventoryOpen)interactWithTarget()}if(e.key==='Escape'){if(inventoryOpen)closeInventory();else if(playing)openMenu()}});
 
 // -----------------------------------------------------------------------------
@@ -311,7 +342,7 @@ async function peiLoadOrthophoto(){
  const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace||tex.encoding;tex.anisotropy=Math.min(8,R.capabilities.getMaxAnisotropy());tex.generateMipmaps=true;tex.minFilter=THREE.LinearMipmapLinearFilter;tex.magFilter=THREE.LinearFilter;tex.needsUpdate=true;peiOrthoTexture=tex;
 }
 
-const peiHit=[],peiBuildingBounds=[],peiMaterials={road:new THREE.MeshStandardMaterial({color:0x343a39,roughness:.96}),roadMain:new THREE.MeshStandardMaterial({color:0x292f30,roughness:.92}),water:new THREE.MeshStandardMaterial({color:0x477f91,roughness:.24,metalness:.12}),roof:new THREE.MeshStandardMaterial({color:0x554c42,roughness:.9}),building:new THREE.MeshStandardMaterial({color:0x9a8e7b,roughness:.92}),building2:new THREE.MeshStandardMaterial({color:0x7e887c,roughness:.92}),tree:new THREE.MeshStandardMaterial({color:0x27452c,roughness:1}),trunk:new THREE.MeshStandardMaterial({color:0x493b2b,roughness:1})};
+const peiHit=[],peiBuildingBounds=[],peiDoors=[],peiMaterials={road:new THREE.MeshStandardMaterial({color:0x343a39,roughness:.96}),roadMain:new THREE.MeshStandardMaterial({color:0x292f30,roughness:.92}),water:new THREE.MeshStandardMaterial({color:0x477f91,roughness:.24,metalness:.12}),roof:new THREE.MeshStandardMaterial({color:0x554c42,roughness:.9}),building:new THREE.MeshStandardMaterial({color:0x9a8e7b,roughness:.92}),building2:new THREE.MeshStandardMaterial({color:0x7e887c,roughness:.92}),tree:new THREE.MeshStandardMaterial({color:0x27452c,roughness:1}),trunk:new THREE.MeshStandardMaterial({color:0x493b2b,roughness:1})};
 function peiXY(lat,lon){const x=(lon-PEI_CENTER.lon)*111320*Math.cos(PEI_CENTER.lat*Math.PI/180),z=-(lat-PEI_CENTER.lat)*111320;return{x,z}}
 function peiHeightAt(x,z){
  if(peiDemRaster){
@@ -385,25 +416,31 @@ function peiBuildBuilding(points,tags){
  const wall=new THREE.MeshStandardMaterial({color:palette[Math.floor(Math.random()*palette.length)],roughness:.92});
  const body=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),wall);body.position.y=h*.5;body.castShadow=true;body.receiveShadow=true;group.add(body);peiHit.push(body);
  const roofMat=new THREE.MeshStandardMaterial({color:[0x403a35,0x51483e,0x62594d,0x454b4a,0x6a6257][Math.floor(Math.random()*5)],roughness:.96});
- // Distinct low-poly gable roof: two sloped roof planes and triangular end caps.
- const roofBase=new THREE.Mesh(new THREE.BoxGeometry(w*1.08,.18,d*1.08),roofMat);roofBase.position.y=h+.08;roofBase.castShadow=true;group.add(roofBase);
- const ridgeAlongX=w>=d, halfW=w*.58, halfD=d*.58, ridgeY=h+1.9;
- const roofShape=new THREE.BufferGeometry();
- const rv=[],ri=[];
- if(ridgeAlongX){
-  rv.push(-halfW,h, -halfD, halfW,h,-halfD, 0,ridgeY,-halfD,
-          -halfW,h, halfD, 0,ridgeY,halfD, halfW,h,halfD,
-          -halfW,h,-halfD, -halfW,h,halfD, 0,ridgeY,halfD,
-          halfW,h,-halfD, 0,ridgeY,halfD, halfW,h,halfD);
- }else{
-  rv.push(-halfW,h,-halfD, -halfW,ridgeY,0, -halfW,h,halfD,
-          halfW,h,-halfD, halfW,h,halfD, halfW,ridgeY,0,
-          -halfW,h,-halfD, halfW,h,-halfD, halfW,ridgeY,0,
-          -halfW,h,halfD, halfW,ridgeY,0, halfW,h,halfD);
+ // Proper pitched roof: two solid sloping panels meet cleanly at a ridge.
+ // The panels overlap slightly at the peak and extend beyond the wall line as eaves.
+ const ridgeAlongX=w>=d, roofRise=2.15, halfSpan=(ridgeAlongX?d:w)*.59;
+ const slopeLen=Math.sqrt(halfSpan*halfSpan+roofRise*roofRise);
+ const roofAngle=Math.atan2(roofRise,halfSpan), roofMidY=h+roofRise*.5;
+ const roofPanelGeo=new THREE.BoxGeometry((ridgeAlongX?w:d)*1.13,slopeLen,.22);
+ const roofPanels=[];
+ for(const side of [-1,1]){
+  const panel=new THREE.Mesh(roofPanelGeo,roofMat);
+  if(ridgeAlongX){panel.rotation.x=side*roofAngle;panel.position.set(0,roofMidY,side*halfSpan*.5)}
+  else{panel.rotation.z=-side*roofAngle;panel.position.set(side*halfSpan*.5,roofMidY,0)}
+  panel.castShadow=true;panel.receiveShadow=true;group.add(panel);roofPanels.push(panel);
  }
- for(let q=0;q<rv.length/3;q+=3)ri.push(q,q+1,q+2);
- roofShape.setAttribute('position',new THREE.Float32BufferAttribute(rv,3));roofShape.setIndex(ri);roofShape.computeVertexNormals();
- const roofMesh=new THREE.Mesh(roofShape,roofMat);roofMesh.castShadow=true;group.add(roofMesh);
+ // Close both triangular gable ends with matching siding-coloured infill.
+ const gableMat=new THREE.MeshStandardMaterial({color:0x9d9688,roughness:.95,side:THREE.DoubleSide});
+ for(const end of [-1,1]){
+  const shape=new THREE.Shape();
+  if(ridgeAlongX){shape.moveTo(-w*.5,h);shape.lineTo(w*.5,h);shape.lineTo(0,h+roofRise);shape.closePath()}
+  else{shape.moveTo(-d*.5,h);shape.lineTo(d*.5,h);shape.lineTo(0,h+roofRise);shape.closePath()}
+  const geo=new THREE.ShapeGeometry(shape);
+  const gable=new THREE.Mesh(geo,gableMat);
+  if(ridgeAlongX){gable.position.set(0,0,end*d*.5);gable.rotation.y=end===1?Math.PI:0}
+  else{gable.rotation.y=Math.PI/2;gable.position.set(end*w*.5,0,0);if(end===-1)gable.rotation.y=-Math.PI/2}
+  group.add(gable);
+ }
  const glass=new THREE.MeshStandardMaterial({color:0x263f4b,roughness:.24,metalness:.08,emissive:0x101c22});
  const trim=new THREE.MeshStandardMaterial({color:0xe4ded0,roughness:.82});
  const frontZ=-d*.5-.045,windowY=Math.min(h*.58,2.0);
@@ -413,8 +450,18 @@ function peiBuildBuilding(points,tags){
   const frame=new THREE.Mesh(new THREE.BoxGeometry(.92,.94,.09),trim);frame.position.set(x,windowY,frontZ);group.add(frame);
   const pane=new THREE.Mesh(new THREE.BoxGeometry(.72,.72,.1),glass);pane.position.set(x,windowY,frontZ-.012);group.add(pane);
  }
- const door=new THREE.Mesh(new THREE.BoxGeometry(.92,2.05,.12),new THREE.MeshStandardMaterial({color:0x51402e,roughness:.9}));
- door.position.set(Math.min(w*.22,Math.max(-w*.22,0)),1.025,frontZ-.035);group.add(door);
+ const doorWidth=Math.min(1.02,Math.max(.78,w*.22)),doorHeight=Math.min(2.15,h*.66);
+ const doorX=Math.min(w*.22,Math.max(-w*.22,0)),doorPivot=new THREE.Group();
+ doorPivot.position.set(doorX-doorWidth*.5,.06,frontZ-.13);group.add(doorPivot);
+ const doorMat=new THREE.MeshStandardMaterial({color:0x65432f,roughness:.88});
+ const door=new THREE.Mesh(new THREE.BoxGeometry(doorWidth,doorHeight,.16),doorMat);
+ door.position.set(doorWidth*.5,doorHeight*.5,0);door.castShadow=true;door.userData.peiDoor=true;doorPivot.add(door);
+ const doorInset=new THREE.Mesh(new THREE.BoxGeometry(doorWidth*.68,doorHeight*.72,.025),new THREE.MeshStandardMaterial({color:0x513524,roughness:.9}));
+ doorInset.position.set(doorWidth*.5,doorHeight*.53,.095);doorPivot.add(doorInset);
+ const knob=new THREE.Mesh(new THREE.SphereGeometry(.055,10,8),new THREE.MeshStandardMaterial({color:0xb59a62,metalness:.65,roughness:.35}));
+ knob.position.set(doorWidth*.84,doorHeight*.48,.12);doorPivot.add(knob);
+ doorPivot.userData.peiDoor={open:0,target:0,building:group};
+ peiDoors.push(doorPivot);door.userData.peiDoorPivot=doorPivot;
  // A second side window makes the shell read as a building from oblique approaches.
  if(d>4){const sideFrame=new THREE.Mesh(new THREE.BoxGeometry(.1,.9,.95),trim);sideFrame.position.set(w*.5+.045,windowY,0);group.add(sideFrame);const sidePane=new THREE.Mesh(new THREE.BoxGeometry(.11,.7,.73),glass);sidePane.position.set(w*.5+.055,windowY,0);group.add(sidePane)}
  // PEI house detailing: visible horizontal vinyl/wood siding, corner boards and a real foundation.
@@ -886,7 +933,9 @@ const k=Math.min(1,Math.max(0,(cT-6.5)/3)),ks=k*k*(3-2*k),L0=cHeli[0].position;c
 if(chopG)chopG.gain.value=Math.max(0,Math.min(1,1-Math.abs(L0.z-11)/320))*.9;if(cT>12)$('cs').style.opacity=1}
 function endCine(){if(!cine)return;cine=0;started=false;try{chopO&&chopO.stop();chopL&&chopL.stop()}catch(e){}chopO=null;S.remove(cG);hit.splice(cHit,hit.length-cHit);cSet.visible=false;cn.style.display='none';S.background=new THREE.Color(0x0e140e);S.fog=new THREE.FogExp2(0x0e140e,.013);bbs.forEach(b=>b.kill());openMenu()}
 buildMenu2();let prev=performance.now();
-function loop(now){requestAnimationFrame(loop);const dt=Math.min((now-prev)/1000,.1);prev=now;pad(dt);lootCases.forEach(g=>{const c=g.userData.lootCase;c.open+=(c.target-c.open)*Math.min(1,dt*9);c.hinge.rotation.x=-c.open*1.35});updateInteraction(dt);
+function loop(now){requestAnimationFrame(loop);const dt=Math.min((now-prev)/1000,.1);prev=now;pad(dt);lootCases.forEach(g=>{const c=g.userData.lootCase;c.open+=(c.target-c.open)*Math.min(1,dt*9);c.hinge.rotation.x=-c.open*1.35});
+ peiDoors.forEach(p=>{const d=p.userData.peiDoor;if(d){d.open+=(d.target-d.open)*Math.min(1,dt*7);p.rotation.y=-d.open*1.42}});
+ updateInteraction(dt);
 wg.forEach((g,i)=>g.visible=playing&&i==cw&&!(player.ads&&sc()));
 if(cine)cineStep(dt);else if(playing){
  if(player.alive){const m0=Math.hypot(joy.x,joy.y);let sp=player.crouch?2.4:player.ads?2.1:4.2;if(m0>.92&&!player.crouch&&!player.ads&&stam>5){sp=7;stam=Math.max(0,stam-22*dt)}else stam=Math.min(100,stam+18*dt);$('sf').style.width=stam+'%';
