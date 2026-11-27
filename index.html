@@ -417,6 +417,42 @@ function peiBuildBuilding(points,tags){
  door.position.set(Math.min(w*.22,Math.max(-w*.22,0)),1.025,frontZ-.035);group.add(door);
  // A second side window makes the shell read as a building from oblique approaches.
  if(d>4){const sideFrame=new THREE.Mesh(new THREE.BoxGeometry(.1,.9,.95),trim);sideFrame.position.set(w*.5+.045,windowY,0);group.add(sideFrame);const sidePane=new THREE.Mesh(new THREE.BoxGeometry(.11,.7,.73),glass);sidePane.position.set(w*.5+.055,windowY,0);group.add(sidePane)}
+ // PEI house detailing: visible horizontal vinyl/wood siding, corner boards and a real foundation.
+ const sidingMat=new THREE.MeshStandardMaterial({color:0xe5ddc9,roughness:.94});
+ const foundationMat=new THREE.MeshStandardMaterial({color:0x77766d,roughness:1});
+ const foundation=new THREE.Mesh(new THREE.BoxGeometry(w+.22,.42,d+.22),foundationMat);foundation.position.y=.22;foundation.castShadow=true;group.add(foundation);
+ const boardCount=Math.max(5,Math.min(12,Math.floor(h/.34)));
+ for(let j=0;j<boardCount;j++){
+  const yy=.58+j*(h-.75)/boardCount;
+  const stripe=new THREE.Mesh(new THREE.BoxGeometry(w+.035,.035,.035),sidingMat);stripe.position.set(0,yy,-d*.5-.025);group.add(stripe);
+  const stripeBack=new THREE.Mesh(new THREE.BoxGeometry(w+.035,.035,.035),sidingMat);stripeBack.position.set(0,yy,d*.5+.025);group.add(stripeBack);
+  const stripeSideA=new THREE.Mesh(new THREE.BoxGeometry(.035,.035,d+.035),sidingMat);stripeSideA.position.set(-w*.5-.025,yy,0);group.add(stripeSideA);
+  const stripeSideB=new THREE.Mesh(new THREE.BoxGeometry(.035,.035,d+.035),sidingMat);stripeSideB.position.set(w*.5+.025,yy,0);group.add(stripeSideB);
+ }
+ for(const xx of [-w*.5,w*.5]){const corner=new THREE.Mesh(new THREE.BoxGeometry(.16,h,.16),trim);corner.position.set(xx,h*.5,-d*.5-.055);group.add(corner)}
+ // Window crossbars and sills add readable scale even at mid-distance.
+ for(let i=0;i<windowCount;i++){
+  const x=-w*.5+(i+1)*w/(windowCount+1);
+  const sill=new THREE.Mesh(new THREE.BoxGeometry(1.04,.12,.18),trim);sill.position.set(x,windowY-.52,frontZ-.055);group.add(sill);
+  const mullion=new THREE.Mesh(new THREE.BoxGeometry(.055,.72,.035),trim);mullion.position.set(x,windowY,frontZ-.075);group.add(mullion);
+  const crossbar=new THREE.Mesh(new THREE.BoxGeometry(.72,.055,.035),trim);crossbar.position.set(x,windowY,frontZ-.075);group.add(crossbar);
+ }
+ // A modest covered front porch with deck, steps, posts and a little roof.
+ if(w>6&&d>6){
+  const porchDepth=Math.min(2.2,d*.24),porchW=Math.min(w*.82,7.5),porchZ=-d*.5-porchDepth*.5-.12;
+  const deck=new THREE.Mesh(new THREE.BoxGeometry(porchW,.2,porchDepth),new THREE.MeshStandardMaterial({color:0x8a806c,roughness:1}));deck.position.set(0,.42,porchZ);deck.castShadow=true;group.add(deck);
+  const porchRoof=new THREE.Mesh(new THREE.BoxGeometry(porchW+.45,.18,porchDepth+.35),roofMat);porchRoof.position.set(0,h*.72,porchZ);porchRoof.castShadow=true;group.add(porchRoof);
+  for(const px of [-porchW*.46,porchW*.46]){const post=new THREE.Mesh(new THREE.BoxGeometry(.14,h*.72-.5,.14),trim);post.position.set(px,h*.36+.52,porchZ-porchDepth*.35);post.castShadow=true;group.add(post)}
+  const step=new THREE.Mesh(new THREE.BoxGeometry(Math.min(porchW*.7,3),.2,.65),foundationMat);step.position.set(0,.18,porchZ-porchDepth*.5-.28);group.add(step);
+ }
+ // Chimney, roof ridge cap and dark fascia make the silhouette less toy-like.
+ const chimney=new THREE.Mesh(new THREE.BoxGeometry(.72,2.25,.72),new THREE.MeshStandardMaterial({color:0x8a5140,roughness:1}));chimney.position.set(w*.27,h+1.05,d*.12);chimney.castShadow=true;group.add(chimney);
+ const cap=new THREE.Mesh(new THREE.BoxGeometry(.9,.16,.9),new THREE.MeshStandardMaterial({color:0x51483f,roughness:1}));cap.position.set(w*.27,h+2.2,d*.12);group.add(cap);
+ // Larger footprints read as working farm buildings: broad barn doors and contrasting trim.
+ if(area>180){
+  const barnDoor=new THREE.Mesh(new THREE.BoxGeometry(Math.min(4.2,w*.48),Math.min(3.8,h*.72),.13),new THREE.MeshStandardMaterial({color:0x713d32,roughness:1}));barnDoor.position.set(0,Math.min(2.0,h*.38),frontZ-.09);group.add(barnDoor);
+  const doorSeam=new THREE.Mesh(new THREE.BoxGeometry(.08,Math.min(3.8,h*.72),.04),trim);doorSeam.position.set(0,Math.min(2.0,h*.38),frontZ-.17);group.add(doorSeam);
+ }
  PEI_SCENE.add(group);
  peiSceneBuildingSamples.push({x:cx,z:cz});
  peiBuildingBounds.push({minX,maxX,minZ,maxZ});
