@@ -427,36 +427,30 @@ function peiBuildBuilding(points,tags){
  addWall(frontSide,h,wallT,(w+doorWidth)*.25,h*.5,frontZ);
  addWall(doorWidth,h-doorHeight,wallT,doorX,(h+doorHeight)*.5,frontZ);
  const roofMat=new THREE.MeshStandardMaterial({color:[0x403a35,0x51483e,0x62594d,0x454b4a,0x6a6257][Math.floor(Math.random()*5)],roughness:.96});
- // Roof built from explicit world-local vertices. No rotations or guessed Euler angles:
- // the ridge is always on the long axis; each plane runs from ridge to eave.
- const ridgeAlongX=w>=d, roofRise=Math.max(1.0,Math.min(2.15,Math.min(w,d)*.34));
- const halfSpan=(ridgeAlongX?d:w)*.58;
- const roofLength=(ridgeAlongX?w:d)*.56;
- const roofMat=new THREE.MeshStandardMaterial({color:[0x403a35,0x51483e,0x62594d,0x454b4a,0x6a6257][Math.floor(Math.random()*5)],roughness:.96,side:THREE.DoubleSide});
- function roofPlane(side){
-  const g=new THREE.BufferGeometry();let v;
-  if(ridgeAlongX){
-   const z=side*halfSpan, a=roofLength;
-   v=[-a,h+roofRise,0, a,h+roofRise,0, a,h,z, -a,h,z];
-  }else{
-   const x=side*halfSpan, a=roofLength;
-   v=[0,h+roofRise,-a, 0,h+roofRise,a, x,h,a, x,h,-a];
-  }
-  g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));
-  g.setIndex([0,1,2,0,2,3]);g.computeVertexNormals();
-  const m=new THREE.Mesh(g,roofMat);m.castShadow=true;m.receiveShadow=true;group.add(m);
-  // Slim fascia along the eave gives the roof a visible finished edge.
-  if(ridgeAlongX){const fascia=new THREE.Mesh(new THREE.BoxGeometry(roofLength*2,.16,.14),roofMat);fascia.position.set(0,h-.02,z);group.add(fascia)}
-  else{const fascia=new THREE.Mesh(new THREE.BoxGeometry(.14,.16,roofLength*2),roofMat);fascia.position.set(x,h-.02,0);group.add(fascia)}
+ // Proper pitched roof: two solid sloping panels meet cleanly at a ridge.
+ // The panels overlap slightly at the peak and extend beyond the wall line as eaves.
+ const ridgeAlongX=w>=d, roofRise=2.15, halfSpan=(ridgeAlongX?d:w)*.59;
+ const slopeLen=Math.sqrt(halfSpan*halfSpan+roofRise*roofRise);
+ const roofAngle=Math.atan2(roofRise,halfSpan), roofMidY=h+roofRise*.5;
+ const roofPanelGeo=new THREE.BoxGeometry((ridgeAlongX?w:d)*1.13,slopeLen,.22);
+ const roofPanels=[];
+ for(const side of [-1,1]){
+  const panel=new THREE.Mesh(roofPanelGeo,roofMat);
+  if(ridgeAlongX){panel.rotation.x=side*roofAngle;panel.position.set(0,roofMidY,side*halfSpan*.5)}
+  else{panel.rotation.z=-side*roofAngle;panel.position.set(side*halfSpan*.5,roofMidY,0)}
+  panel.castShadow=true;panel.receiveShadow=true;group.add(panel);roofPanels.push(panel);
  }
- roofPlane(-1);roofPlane(1);
- // Gable triangles sit only on the two ends of the long ridge.
+ // Close both triangular gable ends with matching siding-coloured infill.
  const gableMat=new THREE.MeshStandardMaterial({color:0x9d9688,roughness:.95,side:THREE.DoubleSide});
- function addGable(vertices){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));g.setIndex([0,1,2]);g.computeVertexNormals();group.add(new THREE.Mesh(g,gableMat))}
- if(ridgeAlongX){
-  for(const z of [-d*.5-.015,d*.5+.015])addGable([-w*.5,h,z,w*.5,h,z,0,h+roofRise,z]);
- }else{
-  for(const x of [-w*.5-.015,w*.5+.015])addGable([x,h,-d*.5,x,h,d*.5,x,h+roofRise,0]);
+ for(const end of [-1,1]){
+  const shape=new THREE.Shape();
+  if(ridgeAlongX){shape.moveTo(-w*.5,h);shape.lineTo(w*.5,h);shape.lineTo(0,h+roofRise);shape.closePath()}
+  else{shape.moveTo(-d*.5,h);shape.lineTo(d*.5,h);shape.lineTo(0,h+roofRise);shape.closePath()}
+  const geo=new THREE.ShapeGeometry(shape);
+  const gable=new THREE.Mesh(geo,gableMat);
+  if(ridgeAlongX){gable.position.set(0,0,end*d*.5);gable.rotation.y=end===1?Math.PI:0}
+  else{gable.rotation.y=Math.PI/2;gable.position.set(end*w*.5,0,0);if(end===-1)gable.rotation.y=-Math.PI/2}
+  group.add(gable);
  }
  const glass=new THREE.MeshStandardMaterial({color:0x263f4b,roughness:.24,metalness:.08,emissive:0x101c22});
  const trim=new THREE.MeshStandardMaterial({color:0xe4ded0,roughness:.82});
