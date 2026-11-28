@@ -425,8 +425,8 @@ function peiBuildBuilding(points,tags){
  const roofPanels=[];
  for(const side of [-1,1]){
   const panel=new THREE.Mesh(roofPanelGeo,roofMat);
-  if(ridgeAlongX){panel.rotation.x=side*roofAngle;panel.position.set(0,roofMidY,side*halfSpan*.5)}
-  else{panel.rotation.z=-side*roofAngle;panel.position.set(side*halfSpan*.5,roofMidY,0)}
+  if(ridgeAlongX){panel.rotation.x=-side*roofAngle;panel.position.set(0,roofMidY,side*halfSpan*.5)}
+  else{panel.rotation.z=side*roofAngle;panel.position.set(side*halfSpan*.5,roofMidY,0)}
   panel.castShadow=true;panel.receiveShadow=true;group.add(panel);roofPanels.push(panel);
  }
  // Close both triangular gable ends with matching siding-coloured infill.
